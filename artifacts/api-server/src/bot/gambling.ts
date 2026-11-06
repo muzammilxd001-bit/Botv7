@@ -91,7 +91,7 @@ export async function handleCoinflipCommand(message: Message, args: string[] = m
   const landedEmoji = result.landed === "heads" ? HEADS_EMOJI : TAILS_EMOJI;
   await resultMessage.edit(
     result.won
-        ? `${COINFLIP_EMOJI} The coin spins... ${landedEmoji} and you won **${CREDITS_EMOJI} ${result.bet.toLocaleString()}**!`
+        ? `${COINFLIP_EMOJI} The coin spins... ${landedEmoji} and you won **${CREDITS_EMOJI} ${(result.bet * 2).toLocaleString()}**!`
         : `${COINFLIP_EMOJI} The coin spins... ${landedEmoji} and you lost it all... :c`,
   );
 }

@@ -81,6 +81,10 @@ export async function handleMessage(
     return;
   }
 
+  if (!raw.startsWith("!")) {
+    await handleCreditGameAnswer(message);
+  }
+
   const noPrefix = hasNoPrefix(message);
   const content = (!raw.startsWith("!") && noPrefix) ? `!${raw}` : raw;
 
@@ -94,7 +98,6 @@ export async function handleMessage(
 
   if (!raw.startsWith("!")) {
     await handleFlagDropAnswer(message);
-    await handleCreditGameAnswer(message);
   }
 
   if (!content.startsWith("!") && !noPrefix) return;

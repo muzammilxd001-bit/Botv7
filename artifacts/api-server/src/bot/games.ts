@@ -12,9 +12,9 @@ import { and, eq } from "drizzle-orm";
 import { botGameSettingsTable, db } from "@workspace/db";
 import { premiumColors, premiumMessagePayload } from "./presentation";
 import { awardGameCredits } from "./credits";
+import { logger } from "../lib/logger";
 
-const DEFAULT_ROUND_TIME_MS = 30_000;
-const EXTENDED_ROUND_TIME_MS = 60_000;
+const ROUND_TIME_MS = 60_000;
 const DEFAULT_INTERVAL_MINUTES = 30;
 const MIN_INTERVAL_MINUTES = 1;
 const MAX_INTERVAL_MINUTES = 24 * 60;
@@ -44,6 +44,7 @@ interface Round {
   reward: number;
   imageUrl?: string;
   triviaOptions?: string[];
+  triviaWinners: Set<string>;
   timer: NodeJS.Timeout;
 }
 
@@ -107,6 +108,9 @@ const CELEBRITY_QUESTIONS: CelebrityQuestion[] = [
   { name: "Ed Sheeran", clues: "I am a singer-songwriter known for Shape of You and Perfect.", aliases: ["ed"] },
   { name: "Billie Eilish", clues: "I am a singer known for Bad Guy and What Was I Made For?", aliases: ["billie"] },
   { name: "Drake", clues: "I am a Canadian rapper and singer known for Hotline Bling and God's Plan." },
+  { name: "The Weeknd", clues: "I am a Canadian artist.\nMy hit songs are Blinding Lights, Save Your Tears and Heartless.", aliases: ["weeknd"] },
+  { name: "Travis Scott", clues: "I am an American artist.\nMy hit songs are No Bystanders, Butterfly Effect & Highest in the Room.", aliases: ["travis"] },
+  { name: "Michael Jackson", clues: "I am an American artist.\nMy hit songs are Billie Jean, Thriller and Beat It.", aliases: ["michael"] },
   { name: "Eminem", clues: "I am a rapper known for Lose Yourself and Without Me." },
   { name: "Katy Perry", clues: "I am a singer known for Roar, Firework, and Dark Horse.", aliases: ["katy"] },
   { name: "Jennifer Lopez", clues: "I am a singer and actor known as J.Lo.", aliases: ["jlo", "j lo"] },
@@ -120,13 +124,42 @@ const CELEBRITY_QUESTIONS: CelebrityQuestion[] = [
   { name: "Lionel Messi", clues: "I am an Argentine footballer and World Cup winner.", aliases: ["messi"] },
   { name: "Kylian Mbappe", clues: "I am a French footballer known for pace and a World Cup final hat-trick.", aliases: ["mbappe", "kylian"] },
   { name: "David Beckham", clues: "I am an English footballer known for my free kicks and the number 7.", aliases: ["beckham"] },
+  { name: "Brad Pitt", clues: "I am an actor known for Fight Club, Troy, and Once Upon a Time in Hollywood.", aliases: ["pitt"] },
+  { name: "Angelina Jolie", clues: "I am an actor and filmmaker known for Maleficent and Lara Croft.", aliases: ["angelina"] },
+  { name: "Keanu Reeves", clues: "I am an actor known for The Matrix and John Wick.", aliases: ["keanu"] },
+  { name: "Chris Evans", clues: "I am an actor who played Captain America in Marvel films.", aliases: ["captain america"] },
+  { name: "Scarlett Johansson", clues: "I am an actor who played Black Widow in Marvel films.", aliases: ["scarlett", "black widow"] },
+  { name: "Zendaya", clues: "I am an actor and singer known for Euphoria and the Spider-Man films." },
+  { name: "Tom Holland", clues: "I am an English actor who played Spider-Man in Marvel films.", aliases: ["spiderman", "spider man"] },
+  { name: "Margot Robbie", clues: "I am an Australian actor known for Barbie and I, Tonya.", aliases: ["margot"] },
+  { name: "Ryan Reynolds", clues: "I am a Canadian actor known for Deadpool and Free Guy.", aliases: ["ryan"] },
+  { name: "Emma Watson", clues: "I am an English actor known for playing Hermione Granger.", aliases: ["hermione"] },
+  { name: "Harry Styles", clues: "I am an English singer and actor who was a member of One Direction.", aliases: ["harry"] },
+  { name: "Bruno Mars", clues: "I am an American singer known for Uptown Funk and 24K Magic.", aliases: ["bruno"] },
+  { name: "Shakira", clues: "I am a Colombian singer known for Hips Don't Lie and Waka Waka." },
+  { name: "Miley Cyrus", clues: "I am an American singer and actor known for Wrecking Ball and Hannah Montana.", aliases: ["miley", "hannah montana"] },
+  { name: "Snoop Dogg", clues: "I am an American rapper and entertainer known for Gin and Juice.", aliases: ["snoop"] },
+  { name: "Jay-Z", clues: "I am an American rapper and entrepreneur known for Empire State of Mind.", aliases: ["jay z", "jayz"] },
+  { name: "Nicki Minaj", clues: "I am a Trinidadian-born rapper known for Super Bass and Anaconda.", aliases: ["nicki"] },
+  { name: "Cardi B", clues: "I am an American rapper known for Bodak Yellow and WAP.", aliases: ["cardi"] },
+  { name: "Aamir Khan", clues: "I am an Indian actor known for 3 Idiots and Dangal.", aliases: ["aamir"] },
+  { name: "Amitabh Bachchan", clues: "I am an Indian actor known as the Shahenshah of Bollywood.", aliases: ["amitabh", "big b"] },
+  { name: "Deepika Padukone", clues: "I am an Indian actor known for Om Shanti Om and Padmaavat.", aliases: ["deepika"] },
+  { name: "Alia Bhatt", clues: "I am an Indian actor known for Raazi and Gangubai Kathiawadi.", aliases: ["alia"] },
+  { name: "Rohit Sharma", clues: "I am an Indian cricketer known for powerful batting and multiple double centuries.", aliases: ["rohit"] },
+  { name: "Neymar", clues: "I am a Brazilian footballer known for flair and creative play.", aliases: ["neymar jr"] },
+  { name: "Serena Williams", clues: "I am an American tennis champion with 23 Grand Slam singles titles.", aliases: ["serena"] },
+  { name: "Usain Bolt", clues: "I am a Jamaican sprinter known as the fastest man in the world.", aliases: ["bolt"] },
+  { name: "LeBron James", clues: "I am an American basketball player known as King James.", aliases: ["lebron"] },
+  { name: "Stephen Curry", clues: "I am an American basketball player known for revolutionizing three-point shooting.", aliases: ["curry", "steph"] },
+  { name: "PewDiePie", clues: "I am a Swedish YouTube creator known for gaming and commentary.", aliases: ["pewdie"] },
 ];
 
 const LETTER_QUESTIONS: LetterQuestion[] = [
   { letter: "K", theme: "fruits or vegetables", answers: ["kiwi", "kale", "kumquat"] },
   { letter: "B", theme: "countries", answers: ["brazil", "belgium", "bhutan", "bahamas", "bahrain", "bangladesh", "barbados", "belarus", "belize", "benin", "bolivia", "botswana", "brunei", "bulgaria", "burkina faso", "burundi"] },
   { letter: "C", theme: "cities", answers: ["cairo", "chicago", "chennai", "chicago", "cape town", "canberra", "casablanca", "copenhagen"] },
-  { letter: "M", theme: "names", answers: ["maria", "michael", "maya", "mohammed", "mason", "meera", "mia", "marco"] },
+  { letter: "M", theme: "names", answers: ["maria", "michael", "maya", "mohammed", "mason", "meera", "mia", "marco", "marks", "maxim", "max", "mariah", "matthew", "matt", "mohit", "mohan", "monica", "mustafa", "manish", "manisha", "megan", "melissa", "mary", "martin", "morgan", "michelle", "mohammad", "munir", "murad"] },
   { letter: "T", theme: "objects", answers: ["table", "telephone", "towel", "television", "telescope", "toothbrush"] },
   { letter: "S", theme: "fruits or vegetables", answers: ["strawberry", "spinach", "squash", "sweet potato"] },
   { letter: "P", theme: "countries", answers: ["pakistan", "panama", "peru", "poland", "portugal", "paraguay", "palau", "palestine", "papua new guinea", "philippines"] },
@@ -289,9 +322,9 @@ function createQuestion(type: GameType): { prompt: string; answers: Set<string>;
     };
   }
 
-  const answer = Math.floor(Math.random() * 20) + 1;
+  const answer = Math.floor(Math.random() * 10) + 1;
   return {
-    prompt: "Guess the secret number between **1 and 20**.",
+    prompt: "Guess the secret number between **1 and 10**.",
     answers: new Set([String(answer)]),
     reward: DEFAULT_GAME_REWARD,
   };
@@ -302,11 +335,12 @@ async function endRound(
   channel: TextChannel,
   round: Round,
   winnerId?: string,
+  winningMessage?: Message,
 ): Promise<boolean> {
-  const key = roundKey(guildId, channel.id);
-  if (rounds.get(key) !== round) return false;
-  rounds.delete(key);
-  clearTimeout(round.timer);
+  if (!claimRound(guildId, channel.id, round)) return false;
+  if (winningMessage) {
+    await reactToCorrectAnswer(winningMessage, guildId, channel.id);
+  }
 
   if (!winnerId) {
     await channel.send(premiumMessagePayload(`${GAME_EMOJIS.time} Time's up! Nobody solved the **${gameLabel(round.type)}** round.`, channel.client.user));
@@ -316,6 +350,20 @@ async function endRound(
   await awardGameCredits(guildId, winnerId, round.reward);
   await channel.send(premiumMessagePayload(`${GAME_EMOJIS.reward} <@${winnerId}> solved **${gameLabel(round.type)}** first and won ${GAME_EMOJIS.credits} **${round.reward} credits**!`, channel.client.user));
   return true;
+}
+
+function claimRound(guildId: string, channelId: string, round: Round): boolean {
+  const key = roundKey(guildId, channelId);
+  if (rounds.get(key) !== round) return false;
+  rounds.delete(key);
+  clearTimeout(round.timer);
+  return true;
+}
+
+async function reactToCorrectAnswer(message: Message, guildId: string, channelId: string): Promise<void> {
+  await message.react(CORRECT_ANSWER_REACTION).catch((error) => {
+    logger.warn({ err: error, guildId, channelId, messageId: message.id }, "Could not react to correct game answer");
+  });
 }
 
 async function startGameRound(
@@ -334,17 +382,18 @@ async function startGameRound(
     reward,
     imageUrl: question.imageUrl,
     triviaOptions: question.triviaOptions,
+    triviaWinners: new Set(),
     timer: undefined as unknown as NodeJS.Timeout,
   } satisfies Round;
   round.timer = setTimeout(() => {
     void endRound(guildId, channel, round);
-  }, (round.type === "math" || round.type === "number") ? EXTENDED_ROUND_TIME_MS : DEFAULT_ROUND_TIME_MS);
+  }, ROUND_TIME_MS);
   rounds.set(roundKey(guildId, channel.id), round);
 
   const embed = new EmbedBuilder()
     .setColor(premiumColors.brand)
     .setTitle(`${GAME_EMOJIS[type]} ${gameLabel(type)}`)
-    .setDescription(`${round.prompt}\n\n${GAME_EMOJIS.trophy} First correct answer wins ${GAME_EMOJIS.credits} **${round.reward} credits**.\n${GAME_EMOJIS.time} You have **${round.type === "math" || round.type === "number" ? 60 : 30} seconds**!`);
+    .setDescription(`${round.prompt}\n\n${GAME_EMOJIS.trophy} First correct answer wins ${GAME_EMOJIS.credits} **${round.reward} credits**.\n${GAME_EMOJIS.time} You have **60 seconds**!`);
   if (round.imageUrl) embed.setImage(round.imageUrl);
 
   await channel.send({
@@ -509,11 +558,13 @@ export async function handleCreditGameInteraction(interaction: ButtonInteraction
     return;
   }
 
-  if (rounds.get(roundKey(guildId, channelId)) !== round) return;
-  rounds.delete(roundKey(guildId, channelId));
-  clearTimeout(round.timer);
-  await interaction.update({ components: [] });
-  await interaction.message.react(CORRECT_ANSWER_REACTION);
+  if (round.triviaWinners.has(interaction.user.id)) {
+    await interaction.reply({ content: "You already received the reward for this trivia question.", ephemeral: true });
+    return;
+  }
+  round.triviaWinners.add(interaction.user.id);
+  await interaction.reply({ content: `${GAME_EMOJIS.reward} Correct! You won ${GAME_EMOJIS.credits} **${round.reward} credits**!`, ephemeral: true });
+  await reactToCorrectAnswer(interaction.message, guildId, channelId);
   await awardGameCredits(guildId, interaction.user.id, round.reward);
   await channel.send(premiumMessagePayload(`${GAME_EMOJIS.reward} <@${interaction.user.id}> selected the correct answer and won ${GAME_EMOJIS.credits} **${round.reward} credits**!`, channel.client.user));
 }
@@ -523,7 +574,12 @@ export async function handleCreditGameAnswer(message: Message): Promise<void> {
   const round = rounds.get(roundKey(message.guild.id, message.channel.id));
   if (!round || round.channelId !== message.channel.id) return;
   if (!round.answers.has(normalize(message.content))) return;
-  if (await endRound(message.guild.id, message.channel as TextChannel, round, message.author.id)) {
-    await message.react(CORRECT_ANSWER_REACTION);
+  if (round.type === "trivia") {
+    if (round.triviaWinners.has(message.author.id)) return;
+    round.triviaWinners.add(message.author.id);
+    await awardGameCredits(message.guild.id, message.author.id, round.reward);
+    await reactToCorrectAnswer(message, message.guild.id, message.channel.id);
+    return;
   }
+  await endRound(message.guild.id, message.channel as TextChannel, round, message.author.id, message);
 }
