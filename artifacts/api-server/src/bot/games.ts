@@ -44,7 +44,6 @@ interface Round {
   reward: number;
   imageUrl?: string;
   triviaOptions?: string[];
-  triviaWinners: Set<string>;
   timer: NodeJS.Timeout;
 }
 
@@ -382,7 +381,6 @@ async function startGameRound(
     reward,
     imageUrl: question.imageUrl,
     triviaOptions: question.triviaOptions,
-    triviaWinners: new Set(),
     timer: undefined as unknown as NodeJS.Timeout,
   } satisfies Round;
   round.timer = setTimeout(() => {
@@ -558,12 +556,13 @@ export async function handleCreditGameInteraction(interaction: ButtonInteraction
     return;
   }
 
-  if (round.triviaWinners.has(interaction.user.id)) {
-    await interaction.reply({ content: "You already received the reward for this trivia question.", ephemeral: true });
+  // Only the first correct answer wins; claimRound ends the round atomically.
+  if (!claimRound(guildId, channelId, round)) {
+    await interaction.reply({ content: "Someone already answered this trivia question correctly.", ephemeral: true });
     return;
   }
-  round.triviaWinners.add(interaction.user.id);
   await interaction.reply({ content: `${GAME_EMOJIS.reward} Correct! You won ${GAME_EMOJIS.credits} **${round.reward} credits**!`, ephemeral: true });
+  await interaction.message.edit({ components: triviaButtons(guildId, channelId, round.triviaOptions, true) }).catch(() => {});
   await reactToCorrectAnswer(interaction.message, guildId, channelId);
   await awardGameCredits(guildId, interaction.user.id, round.reward);
   await channel.send(premiumMessagePayload(`${GAME_EMOJIS.reward} <@${interaction.user.id}> selected the correct answer and won ${GAME_EMOJIS.credits} **${round.reward} credits**!`, channel.client.user));
@@ -574,12 +573,5 @@ export async function handleCreditGameAnswer(message: Message): Promise<void> {
   const round = rounds.get(roundKey(message.guild.id, message.channel.id));
   if (!round || round.channelId !== message.channel.id) return;
   if (!round.answers.has(normalize(message.content))) return;
-  if (round.type === "trivia") {
-    if (round.triviaWinners.has(message.author.id)) return;
-    round.triviaWinners.add(message.author.id);
-    await awardGameCredits(message.guild.id, message.author.id, round.reward);
-    await reactToCorrectAnswer(message, message.guild.id, message.channel.id);
-    return;
-  }
   await endRound(message.guild.id, message.channel as TextChannel, round, message.author.id, message);
 }
