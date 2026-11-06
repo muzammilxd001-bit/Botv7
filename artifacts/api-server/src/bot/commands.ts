@@ -153,6 +153,7 @@ export async function handleMessage(
 
   // ── Help ──────────────────────────────────────────────────────────────────
   } else if (lower === `!${PREFIX}help` || lower.startsWith(`!${PREFIX}help `) || lower === "!help" || lower.startsWith("!help ")) {
+    await handleHelp(message, content.split(/\s+/)[1]);
     return;
 
   // ── Channel Automations ────────────────────────────────────────────────────
