@@ -13,6 +13,7 @@ const BRAND_COLOR = 0x2b2d31;
 const SUCCESS_COLOR = BRAND_COLOR;
 const WARNING_COLOR = BRAND_COLOR;
 const ERROR_COLOR = BRAND_COLOR;
+const PLAIN_TEXT_COMMANDS = new Set(["cf", "coinflip", "gamble", "rob"]);
 
 function responseColor(_text: string): number {
   return BRAND_COLOR;
@@ -176,6 +177,7 @@ export function withPremiumReplies(message: Message, user: ClientUser | null): M
   const suppressFooter = commandKey === "afk" || commandKey === "ship" ||
     (commandKey !== null && SOCIAL_ACTION_NAMES.includes(commandKey as (typeof SOCIAL_ACTION_NAMES)[number]));
   const style = async (payload: unknown, clearExistingContent = false) => {
+    if (commandKey && PLAIN_TEXT_COMMANDS.has(commandKey)) return payload;
     const override = guildId && commandKey
       ? await getEmbedOverride(guildId, commandKey)
       : null;
