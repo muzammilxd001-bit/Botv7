@@ -144,15 +144,16 @@ export async function handleMessage(
   }
 
   // ── Giveaway ──────────────────────────────────────────────────────────────
-  if (lower === `!${PREFIX}start` || lower.startsWith(`!${PREFIX}start `)) {
+  if (lower === "!gstart" || lower.startsWith("!gstart ")) {
     await handleGstart(client, message);
-  } else if (lower === `!${PREFIX}end` || lower.startsWith(`!${PREFIX}end `)) {
+  } else if (lower === "!gend" || lower.startsWith("!gend ")) {
     await handleGend(client, message);
-  } else if (lower === `!${PREFIX}reroll` || lower.startsWith(`!${PREFIX}reroll `)) {
+  } else if (lower === "!greroll" || lower.startsWith("!greroll ")) {
     await handleGreroll(client, message);
 
   // ── Help ──────────────────────────────────────────────────────────────────
   } else if (lower === `!${PREFIX}help` || lower.startsWith(`!${PREFIX}help `) || lower === "!help" || lower.startsWith("!help ")) {
+    await handleHelp(message, content.split(/\s+/)[1]);
     return;
 
   // ── Channel Automations ────────────────────────────────────────────────────
