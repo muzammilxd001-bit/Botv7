@@ -42,3 +42,4 @@ export * from "./bot-emergency";
 export * from "./bot-scheduled-messages";
 export * from "./bot-bump-settings";
 export * from "./bot-quote-roles";
+export * from "./bot-gambling-settings";

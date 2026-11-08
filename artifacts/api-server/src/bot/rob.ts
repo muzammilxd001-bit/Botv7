@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { type Message } from "discord.js";
 import { botMiningProfilesTable, db } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { requireGamblingChannel } from "./gamblingChannel";
 
 const ROB_COOLDOWN_MS = 15_000;
 const MIN_TARGET_BALANCE = 50_000;
@@ -14,6 +15,10 @@ const robCooldowns = new Map<string, number>();
 export async function handleRobCommand(message: Message): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
+  if (!(await requireGamblingChannel(message))) {
+    await message.reply("❌ Gambling commands can only be used in the configured gambling channel.");
+    return;
+  }
 
   const targetUser = message.mentions.users.first();
   if (!targetUser || targetUser.bot || targetUser.id === message.author.id) {

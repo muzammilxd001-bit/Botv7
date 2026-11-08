@@ -60,6 +60,7 @@ import { handleStatusRoleCommand } from "./statusRole";
 import { handleGuildTagRoleCommand } from "./guildTagRole";
 import { handleAutoEmergencyCommand } from "./emergency";
 import { handleRobCommand } from "./rob";
+import { handleSetGamblingCommand } from "./gamblingChannel";
 import { handleCoinflipCommand, handleGambleCommand, logGamblingError } from "./gambling";
 import { logger } from "../lib/logger";
 
@@ -119,6 +120,10 @@ export async function handleMessage(
   }
   if (lower === "!daily") {
     await handleDailyCommand(message);
+    return;
+  }
+  if (lower === "!setgambling" || lower.startsWith("!setgambling ")) {
+    await handleSetGamblingCommand(message, content.split(/\s+/).slice(1));
     return;
   }
   if (lower === "!embed" || lower.startsWith("!embed ")) {

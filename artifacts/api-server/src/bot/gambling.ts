@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { type Message } from "discord.js";
 import { botMiningProfilesTable, db } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { requireGamblingChannel } from "./gamblingChannel";
 
 const MIN_BET = 1;
 const MAX_BET = 250_000;
@@ -33,6 +34,10 @@ function parseBet(value: string | undefined): number {
 export async function handleCoinflipCommand(message: Message, args: string[] = message.content.trim().split(/\s+/).slice(1)): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
+  if (!(await requireGamblingChannel(message))) {
+    await message.reply("❌ Gambling commands can only be used in the configured gambling channel.");
+    return;
+  }
 
   const [first, second] = args;
   const allIn = first?.toLowerCase() === "all";
