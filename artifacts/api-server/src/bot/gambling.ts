@@ -12,6 +12,8 @@ const HEADS_EMOJI = "<:heads:1567519192230400010>";
 const TAILS_EMOJI = "<:tails:1567519233418465380>";
 const CREDITS_EMOJI = "<:16:1553581538074038372>";
 const COINFLIP_DELAY_MS = 1_500;
+const GAMBLING_COOLDOWN_MS = 15_000;
+const gamblingCooldowns = new Map<string, number>();
 
 type CoinSide = "heads" | "tails";
 
@@ -42,6 +44,16 @@ export async function handleCoinflipCommand(message: Message, args: string[] = m
     await message.reply(`Usage: \`!coinflip <heads|tails> <bet>\`, \`!cf <bet> <h|t>\`, \`!cf <bet>\`, or \`!cf all\` for an all-in random flip (bet: ${MIN_BET.toLocaleString()}–${MAX_BET.toLocaleString()} credits).`);
     return;
   }
+
+  const cooldownKey = `${guild.id}:${message.author.id}`;
+  const now = Date.now();
+  const cooldownUntil = gamblingCooldowns.get(cooldownKey) ?? 0;
+  if (cooldownUntil > now) {
+    const nickname = message.member?.displayName ?? message.author.displayName;
+    await message.reply(`⏱ | ${nickname}! Slow down and try the command again <t:${Math.ceil(cooldownUntil / 1000)}:R>`);
+    return;
+  }
+  gamblingCooldowns.set(cooldownKey, now + GAMBLING_COOLDOWN_MS);
 
   const result = await db.transaction(async (tx) => {
     await tx.insert(botMiningProfilesTable)
