@@ -35,13 +35,13 @@ export async function handleCoinflipCommand(message: Message, args: string[] = m
   if (!guild) return;
 
   const [first, second] = args;
-  const allIn = first?.toLowerCase() === "all" && !second;
+  const allIn = first?.toLowerCase() === "all";
   const parsedBet = parseBet(first) || parseBet(second);
   const side = parseSide(first) ?? parseSide(second) ?? (allIn || Number.isSafeInteger(parsedBet)
     ? (randomInt(2) === 0 ? "heads" : "tails")
     : null);
   if (!side || (!allIn && !Number.isSafeInteger(parsedBet))) {
-    await message.reply(`Usage: \`!coinflip <heads|tails> <bet>\`, \`!cf <bet> <h|t>\`, \`!cf <bet>\`, or \`!cf all\` for an all-in random flip (bet: ${MIN_BET.toLocaleString()}–${MAX_BET.toLocaleString()} credits).`);
+    await message.reply(`Usage: \`!coinflip <heads|tails> <bet>\`, \`!cf <bet> <h|t>\`, \`!cf <bet>\`, \`!cf all\`, or \`!cf all <h|t>\` (bet: ${MIN_BET.toLocaleString()}–${MAX_BET.toLocaleString()} credits).`);
     return;
   }
 
