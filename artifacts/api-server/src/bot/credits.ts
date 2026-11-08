@@ -17,6 +17,9 @@ const chatCreditCooldowns = new Map<string, number>();
 const activeChatters = new Map<string, Map<string, { messageTimes: number[]; displayName: string }>>();
 const lastRandomRewardAt = new Map<string, number>();
 const randomRewardInProgress = new Set<string>();
+const DAILY_STREAK_REWARDS = [100, 150, 200, 250, 300, 400, 500] as const;
+const DAILY_COOLDOWN_MS = 24 * 60 * 60_000;
+const DAILY_STREAK_WINDOW_MS = 48 * 60 * 60_000;
 
 async function maybeAwardRandomChatReward(message: Message, now: number): Promise<void> {
   const guild = message.guild;
@@ -241,5 +244,61 @@ export async function awardGameCredits(guildId: string, userId: string, credits:
       });
   } catch (error) {
     logger.error({ err: error, guildId, userId, credits }, "Failed to award game credits");
+  }
+}
+
+export async function handleDailyCommand(message: Message): Promise<void> {
+    const guild = message.guild;
+    if (!guild) return;
+
+    const now = Date.now();
+    try {
+      const result = await db.transaction(async (tx) => {
+        await tx.insert(botMiningProfilesTable)
+          .values({ guildId: guild.id, userId: message.author.id })
+          .onConflictDoNothing();
+        const [profile] = await tx.select()
+          .from(botMiningProfilesTable)
+          .where(and(
+            eq(botMiningProfilesTable.guildId, guild.id),
+            eq(botMiningProfilesTable.userId, message.author.id),
+          ))
+          .for("update");
+        if (!profile) throw new Error("Could not load daily credit profile");
+
+        const elapsed = now - profile.lastDailyAt;
+        if (elapsed < DAILY_COOLDOWN_MS) {
+          return {
+            status: "cooldown" as const,
+            nextClaimAt: profile.lastDailyAt + DAILY_COOLDOWN_MS,
+          };
+        }
+
+        const previousStreak = profile.activityCooldowns.dailyStreak ?? 0;
+        const streak = elapsed <= DAILY_STREAK_WINDOW_MS ? Math.min(previousStreak + 1, DAILY_STREAK_REWARDS.length) : 1;
+        const reward = DAILY_STREAK_REWARDS[streak - 1]!;
+        await tx.update(botMiningProfilesTable)
+          .set({
+            coins: sql<number>`${botMiningProfilesTable.coins} + ${reward}`,
+            lastDailyAt: now,
+            activityCooldowns: { ...profile.activityCooldowns, dailyStreak: streak },
+            updatedAt: new Date(now),
+          })
+          .where(and(
+            eq(botMiningProfilesTable.guildId, guild.id),
+            eq(botMiningProfilesTable.userId, message.author.id),
+          ));
+        return { status: "claimed" as const, reward, streak };
+      });
+
+      if (result.status === "cooldown") {
+        await message.reply(`⏱ | ${message.member?.displayName ?? message.author.displayName}! You already claimed your daily reward. Try again <t:${Math.ceil(result.nextClaimAt / 1000)}:R>.`);
+        return;
+      }
+
+      await message.reply(`🎁 Daily reward: **${result.reward} credits** <:16:1553581538074038372> — streak **${result.streak}**! Come back tomorrow to keep it going.`);
+    } catch (error) {
+      logger.error({ err: error, guildId: guild.id, userId: message.author.id }, "Could not process daily reward");
+      await message.reply("❌ Could not process your daily reward right now. Please try again.");
   }
 }

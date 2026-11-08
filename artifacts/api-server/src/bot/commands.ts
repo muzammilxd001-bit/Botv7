@@ -51,7 +51,7 @@ import { handleModerationLimitCommand } from "./moderationLimits";
 import { handleSetGameCommand } from "./gameChannel";
 import { handleQuoteRoleCommand, handleSetQuoteCommand } from "./quoteChannel";
 import { handleCreditCommand, handleCreditLeaderboardCommand, handleCreditTransferCommand, handleRoleShopCommand } from "./roleShop";
-import { awardChatCredits, handleActiveChatRewardChannelCommand } from "./credits";
+import { awardChatCredits, handleActiveChatRewardChannelCommand, handleDailyCommand } from "./credits";
 import { handleCreditGameAnswer, handleCreditGameCommand } from "./games";
 import { handleCreditDropCommand } from "./crates";
 import { handleFlagDropAnswer, handleFlagDropCommand } from "./flagDrop";
@@ -114,6 +114,10 @@ export async function handleMessage(
   }
   if (lower === "!setchatreward" || lower.startsWith("!setchatreward ")) {
     await handleActiveChatRewardChannelCommand(message, content.split(/\s+/).slice(1));
+    return;
+  }
+  if (lower === "!daily") {
+    await handleDailyCommand(message);
     return;
   }
   if (lower === "!embed" || lower.startsWith("!embed ")) {
