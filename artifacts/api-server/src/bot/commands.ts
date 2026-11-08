@@ -59,6 +59,7 @@ import { handleEmbedCommand } from "./embeds";
 import { handleStatusRoleCommand } from "./statusRole";
 import { handleGuildTagRoleCommand } from "./guildTagRole";
 import { handleAutoEmergencyCommand } from "./emergency";
+import { handleRobCommand } from "./rob";
 import { handleCoinflipCommand, handleGambleCommand, logGamblingError } from "./gambling";
 import { logger } from "../lib/logger";
 
@@ -280,6 +281,8 @@ export async function handleMessage(
     await handleCreditCommand(message);
   } else if (lower === "!cash" || lower.startsWith("!cash ")) {
     await handleCreditCommand(message);
+  } else if (lower === "!rob" || lower.startsWith("!rob ")) {
+    await handleRobCommand(message);
   } else if (lower === "!shop" || lower.startsWith("!shop ")) {
     const args = content.split(/\s+/).slice(1);
     await handleRoleShopCommand(message, args);
