@@ -62,6 +62,7 @@ import { handleAutoEmergencyCommand } from "./emergency";
 import { handleRobCommand } from "./rob";
 import { handleSetGamblingCommand } from "./gamblingChannel";
 import { handleCoinflipCommand, handleGambleCommand, logGamblingError } from "./gambling";
+import { handleMinesCommand } from "./mines";
 import { logger } from "../lib/logger";
 
 const PREFIX = "!";
@@ -140,6 +141,15 @@ export async function handleMessage(
     } catch (error) {
       logGamblingError(error, incomingMessage.guild.id, message.author.id);
       await message.reply("❌ Could not process the coinflip right now. Please try again.");
+    }
+    return;
+  }
+  if (lower === "!mines" || lower.startsWith("!mines ")) {
+    try {
+      await handleMinesCommand(message, content.split(/\s+/).slice(1));
+    } catch (error) {
+      logGamblingError(error, incomingMessage.guild.id, message.author.id);
+      await message.reply("❌ Could not process the Mines game right now. Please try again.");
     }
     return;
   }

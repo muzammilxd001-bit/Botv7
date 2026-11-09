@@ -4,6 +4,7 @@ import { type Message } from "discord.js";
 import { botMiningProfilesTable, db } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { requireGamblingChannel } from "./gamblingChannel";
+import { handleMinesCommand } from "./mines";
 
 const MIN_BET = 1;
 const MAX_BET = 250_000;
@@ -13,7 +14,7 @@ const HEADS_EMOJI = "<:heads:1567519192230400010>";
 const TAILS_EMOJI = "<:tails:1567519233418465380>";
 const CREDITS_EMOJI = "<:16:1553581538074038372>";
 const COINFLIP_DELAY_MS = 1_500;
-const GAMBLING_COOLDOWN_MS = 15_000;
+const GAMBLING_COOLDOWN_MS = 3_000;
 const gamblingCooldowns = new Map<string, number>();
 
 type CoinSide = "heads" | "tails";
@@ -112,11 +113,15 @@ export async function handleCoinflipCommand(message: Message, args: string[] = m
 
 export async function handleGambleCommand(message: Message, args: string[]): Promise<void> {
   const game = args[0]?.toLowerCase();
+  if (game === "mines") {
+    await handleMinesCommand(message, args.slice(1));
+    return;
+  }
   if (game === "coinflip" || game === "flip") {
     await handleCoinflipCommand(message, args.slice(1));
     return;
   }
-  await message.reply("Usage: `!gamble coinflip <heads|tails> <bet>` or `!coinflip <heads|tails> <bet>`.");
+  await message.reply("Usage: `!gamble coinflip <heads|tails> <bet>`, `!gamble mines <bet> [mine-count]`, or use `!mines <bet> [mine-count]`.");
 }
 
 export function logGamblingError(error: unknown, guildId?: string, userId?: string): void {

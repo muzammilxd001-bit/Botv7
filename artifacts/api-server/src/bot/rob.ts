@@ -13,6 +13,20 @@ const robCooldowns = new Map<string, number>();
 export async function handleRobCommand(message: Message): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
+
+  if (message.content.trim().split(/\s+/)[1]?.toLowerCase() === "help") {
+    await message.reply(
+      "`!rob @user` — rob based on the target's current credit balance:\n" +
+      "• 1–1,000: up to 100 credits (or the remaining balance if lower)\n" +
+      "• 1,001–5,000: 200 credits\n" +
+      "• 5,001–10,000: 300 credits\n" +
+      "• 10,001–50,000: 500 credits\n" +
+      "• Over 50,000: 1,000 credits\n" +
+      "You can make up to 10 successful robs per UTC day, with a 15-second cooldown.",
+    );
+    return;
+  }
+
   if (!(await requireGamblingChannel(message))) return;
 
   const targetUser = message.mentions.users.first();

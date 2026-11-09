@@ -30,6 +30,11 @@ const slashCommands = [
     ).setRequired(true))
     .addIntegerOption((o) => o.setName("bet").setDescription("Credits to wager (1–250000)").setMinValue(1).setMaxValue(250000).setRequired(true)),
   new SlashCommandBuilder()
+    .setName("mines")
+    .setDescription("Play Mines for credits.")
+    .addIntegerOption((o) => o.setName("bet").setDescription("Credits to wager (1–250000)").setMinValue(1).setMaxValue(250000).setRequired(true))
+    .addIntegerOption((o) => o.setName("mine_count").setDescription("Number of mines (1–24, default 3)").setMinValue(1).setMaxValue(24)),
+  new SlashCommandBuilder()
     .setName("gstart")
     .setDescription("Start a giveaway.")
     .addStringOption((o) => o.setName("duration").setDescription("Duration, e.g. 30s, 5m, 2h, 1d").setRequired(true))
@@ -618,6 +623,10 @@ function buildLegacyContent(interaction: ChatInputCommandInteraction): string {
       return `!afk ${string("status")}`.trim();
     case "coinflip":
       return `!coinflip ${string("side")} ${integer("bet")}`;
+    case "mines": {
+      const mineCount = integer("mine_count");
+      return `!mines ${integer("bet")}${mineCount === null ? "" : ` ${mineCount}`}`;
+    }
     case "warn":
       return `!warn ${mentionContent(interaction, "user")} ${string("reason")}`.trim();
     case "warnings":
