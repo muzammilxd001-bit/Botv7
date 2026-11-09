@@ -12,9 +12,9 @@ import { botMiningProfilesTable, db } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { requireGamblingChannel } from "./gamblingChannel";
 
-const BOARD_SIZE = 24;
-const BOARD_ROWS = 5;
-const BOARD_COLUMNS = 5;
+const BOARD_SIZE = 9;
+const BOARD_ROWS = 3;
+const BOARD_COLUMNS = 3;
 const DEFAULT_MINES = 3;
 const MIN_MINES = 1;
 const MAX_MINES = BOARD_SIZE - 1;
@@ -58,6 +58,10 @@ function selectMines(count: number): Set<number> {
   return mines;
 }
 
+export function minesNoticeEmbed(description: string): EmbedBuilder {
+  return new EmbedBuilder().setColor(0xed4245).setDescription(description);
+}
+
 function calculatePayout(game: MinesGame): number {
   let multiplier = 1;
   const opened = game.revealed.size;
@@ -73,17 +77,6 @@ function boardComponents(game: MinesGame, disabled = false, revealAll = false): 
     const row = new ActionRowBuilder<ButtonBuilder>();
     for (let columnIndex = 0; columnIndex < BOARD_COLUMNS; columnIndex++) {
       const tile = rowIndex * BOARD_COLUMNS + columnIndex;
-      if (tile === BOARD_SIZE) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId(`mines:${game.id}:cashout`)
-            .setLabel("Cash out")
-            .setStyle(ButtonStyle.Success)
-            .setDisabled(disabled || game.revealed.size === 0),
-        );
-        continue;
-      }
-
       const revealed = game.revealed.has(tile) || revealAll;
       const mined = game.mines.has(tile);
       const button = new ButtonBuilder()
@@ -103,6 +96,15 @@ function boardComponents(game: MinesGame, disabled = false, revealAll = false): 
 
     rows.push(row);
   }
+  rows.push(
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`mines:${game.id}:cashout`)
+        .setLabel("Cash out")
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(disabled || game.revealed.size === 0),
+    ),
+  );
   return rows;
 }
 
@@ -183,11 +185,11 @@ async function expireGame(game: MinesGame): Promise<void> {
 
 async function handleMinesInteraction(game: MinesGame, interaction: ButtonInteraction): Promise<void> {
   if (interaction.user.id !== game.userId) {
-    await interaction.reply({ content: "This Mines board belongs to another player.", ephemeral: true });
+    await interaction.reply({ embeds: [minesNoticeEmbed("This Mines board belongs to another player.")], ephemeral: true });
     return;
   }
   if (game.finished || game.busy) {
-    await interaction.reply({ content: "This Mines game is already being updated.", ephemeral: true });
+    await interaction.reply({ embeds: [minesNoticeEmbed("This Mines game is already being updated.")], ephemeral: true });
     return;
   }
 
@@ -243,7 +245,7 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
       embeds: [new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle("💣 Mines Help")
-        .setDescription("Play a 5×5 board with 1–23 mines (default 3). Open safe tiles to raise your cash-out; use the board's **Cash out** button or `!mines cashout` to collect. Hit a mine and lose your wager.")
+        .setDescription("Play a 3×3 board with 1–8 mines (default 3). Open safe tiles to raise your cash-out; use the board's **Cash out** button or `!mines cashout` to collect. Hit a mine and lose your wager.")
         .addFields(
           { name: "Bet", value: "`!mines <amount> [mine-count]` or `!mine <amount> [mine-count]` (1–250,000 credits)." },
           { name: "All in", value: "`!mines all` wagers your full wallet balance. Add a mine count with `!mines all 5`." },
@@ -257,7 +259,7 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
   const activeGame = activeGames.get(key);
   if (args[0]?.toLowerCase() === "cashout") {
     if (!activeGame) {
-      await message.reply("You don't have an active Mines game to cash out.");
+      await message.reply({ embeds: [minesNoticeEmbed("You don't have an active Mines game to cash out.")] });
       return;
     }
     await cashOutGame(activeGame);
@@ -268,11 +270,11 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
   const bet = allIn ? null : parsePositiveInteger(args[0]);
   const mineCount = args[1] === undefined ? DEFAULT_MINES : parsePositiveInteger(args[1]);
   if ((!allIn && (bet === null || bet < MIN_BET || bet > MAX_BET)) || mineCount === null || mineCount < MIN_MINES || mineCount > MAX_MINES) {
-    await message.reply(`Usage: \`!mines <bet|all> [mine-count]\` (bet: ${MIN_BET.toLocaleString()}–${MAX_BET.toLocaleString()} or all, mines: ${MIN_MINES}–${MAX_MINES}; default ${DEFAULT_MINES}).`);
+    await message.reply({ embeds: [minesNoticeEmbed(`Usage: \`!mines <bet|all> [mine-count]\` (bet: ${MIN_BET.toLocaleString()}–${MAX_BET.toLocaleString()} or all, mines: ${MIN_MINES}–${MAX_MINES}; default ${DEFAULT_MINES}).`)] });
     return;
   }
   if (activeGame) {
-    await message.reply("You already have an active Mines game. Finish it before starting another.");
+    await message.reply({ embeds: [minesNoticeEmbed("You already have an active Mines game. Finish it before starting another.")] });
     return;
   }
   const game: MinesGame = {
@@ -317,7 +319,7 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
 
     if (result.status === "insufficient") {
       activeGames.delete(key);
-      await message.reply(`You only have **${result.balance.toLocaleString()} credits** to wager.`);
+      await message.reply({ embeds: [minesNoticeEmbed(`You only have **${result.balance.toLocaleString()} credits** to wager.`)] });
       return;
     }
 
@@ -339,13 +341,13 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
     game.stopCollector = () => collector.stop("finished");
     collector.on("collect", (interaction) => {
       if (!interaction.isButton()) {
-        void interaction.reply({ content: "Invalid Mines action.", ephemeral: true }).catch(() => {});
+        void interaction.reply({ embeds: [minesNoticeEmbed("Invalid Mines action.")], ephemeral: true }).catch(() => {});
         return;
       }
       void handleMinesInteraction(game, interaction).catch(async (error: unknown) => {
         logger.error({ err: error, guildId: game.guildId, userId: game.userId }, "Could not process Mines interaction");
         if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({ content: "Could not process that Mines move. Please try again.", ephemeral: true }).catch(() => {});
+          await interaction.reply({ embeds: [minesNoticeEmbed("Could not process that Mines move. Please try again.")], ephemeral: true }).catch(() => {});
         }
       });
     });

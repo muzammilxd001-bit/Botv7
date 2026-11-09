@@ -33,7 +33,7 @@ const slashCommands = [
     .setName("mines")
     .setDescription("Play Mines for credits.")
     .addIntegerOption((o) => o.setName("bet").setDescription("Credits to wager (1–250000)").setMinValue(1).setMaxValue(250000).setRequired(true))
-    .addIntegerOption((o) => o.setName("mine_count").setDescription("Number of mines (1–24, default 3)").setMinValue(1).setMaxValue(24)),
+    .addIntegerOption((o) => o.setName("mine_count").setDescription("Number of mines (1–8, default 3)").setMinValue(1).setMaxValue(8)),
   new SlashCommandBuilder()
     .setName("gstart")
     .setDescription("Start a giveaway.")

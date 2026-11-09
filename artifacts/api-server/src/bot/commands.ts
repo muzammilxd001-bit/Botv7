@@ -63,7 +63,7 @@ import { handleRobCommand } from "./rob";
 import { handleBankCommand } from "./bank";
 import { handleSetGamblingCommand } from "./gamblingChannel";
 import { handleCoinflipCommand, handleGambleCommand, logGamblingError } from "./gambling";
-import { handleMinesCommand } from "./mines";
+import { handleMinesCommand, minesNoticeEmbed } from "./mines";
 import { logger } from "../lib/logger";
 
 const PREFIX = "!";
@@ -150,7 +150,7 @@ export async function handleMessage(
       await handleMinesCommand(message, content.split(/\s+/).slice(1));
     } catch (error) {
       logGamblingError(error, incomingMessage.guild.id, message.author.id);
-      await message.reply("❌ Could not process the Mines game right now. Please try again.");
+      await message.reply({ embeds: [minesNoticeEmbed("❌ Could not process the Mines game right now. Please try again.")] });
     }
     return;
   }
@@ -297,7 +297,11 @@ export async function handleMessage(
     await handleCreditCommand(message);
   } else if (lower === "!cash" || lower.startsWith("!cash ")) {
     await handleCreditCommand(message);
-  } else if (lower === "!bank" || lower.startsWith("!bank ")) {
+  } else if (
+    lower === "!bank" || lower.startsWith("!bank ") ||
+    lower === "!deposit" || lower.startsWith("!deposit ") ||
+    lower === "!withdraw" || lower.startsWith("!withdraw ")
+  ) {
     await handleBankCommand(message);
   } else if (lower === "!rob" || lower.startsWith("!rob ")) {
     await handleRobCommand(message);
