@@ -49,6 +49,6 @@ export async function requireGamblingChannel(message: Message): Promise<boolean>
     .limit(1);
   if (!setting || setting.channelId === message.channel.id) return true;
 
-  await message.reply(`❌ Gambling commands can only be used in <#${setting.channelId}>. Play them there. A server manager configured this with \`!setgambling #channel\`.`);
+  await message.reply(`❌ Gambling commands can only be used in <#${setting.channelId}>.`);
   return false;
 }
