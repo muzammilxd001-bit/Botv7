@@ -3,7 +3,11 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ComponentType,
   EmbedBuilder,
+  MessageFlags,
+  SeparatorSpacingSize,
+  type ContainerComponentData,
   type ButtonInteraction,
   type Message,
 } from "discord.js";
@@ -62,9 +66,8 @@ export function minesNoticeEmbed(description: string): EmbedBuilder {
   return new EmbedBuilder().setColor(0xed4245).setDescription(description);
 }
 
-function calculatePayout(game: MinesGame): number {
+function calculatePayout(game: MinesGame, opened = game.revealed.size): number {
   let multiplier = 1;
-  const opened = game.revealed.size;
   for (let index = 0; index < opened; index++) {
     multiplier *= (BOARD_SIZE - index) / (BOARD_SIZE - game.mineCount - index);
   }
@@ -88,7 +91,7 @@ function boardComponents(game: MinesGame, disabled = false, revealAll = false): 
       } else if (revealed) {
         button.setEmoji("💎").setStyle(ButtonStyle.Success);
       } else {
-        button.setLabel(String(tile + 1)).setStyle(ButtonStyle.Secondary);
+        button.setLabel("?").setStyle(ButtonStyle.Secondary);
       }
 
       row.addComponents(button);
@@ -100,7 +103,7 @@ function boardComponents(game: MinesGame, disabled = false, revealAll = false): 
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`mines:${game.id}:cashout`)
-        .setLabel("Cash out")
+        .setLabel("Cash Out")
         .setStyle(ButtonStyle.Success)
         .setDisabled(disabled || game.revealed.size === 0),
     ),
@@ -108,18 +111,35 @@ function boardComponents(game: MinesGame, disabled = false, revealAll = false): 
   return rows;
 }
 
-function gameEmbed(game: MinesGame, status?: string): EmbedBuilder {
-  const payout = game.revealed.size > 0 ? calculatePayout(game) : 0;
-  const progress = game.revealed.size > 0
-    ? `\n\nSafe tiles: **${game.revealed.size}** • Cash-out: **${CREDITS_EMOJI} ${payout.toLocaleString()}**`
-    : "";
-  const description = `<@${game.userId}> wagered **${CREDITS_EMOJI} ${game.bet.toLocaleString()}** with **${game.mineCount} mines**. ${game.finished ? "" : "Pick a tile or use the button below to cash out."}${progress}${status ? `\n\n${status}` : ""}`;
+function gameContainer(game: MinesGame, status?: string, disabled = false, revealAll = false): ContainerComponentData {
+  const cashOut = game.revealed.size > 0 ? calculatePayout(game) : game.bet;
+  const next = !game.finished && game.revealed.size < BOARD_SIZE - game.mineCount
+    ? `${CREDITS_EMOJI} ${calculatePayout(game, game.revealed.size + 1).toLocaleString()}`
+    : "—";
+  const rows = boardComponents(game, disabled, revealAll);
+  const cashOutRow = rows.pop();
+  if (!cashOutRow) throw new Error("Mines cash-out row is unavailable");
+
   const color = status?.startsWith("💥") ? 0xed4245 : status ? 0x57f287 : 0x5865f2;
-  return new EmbedBuilder()
-    .setColor(color)
-    .setTitle("💣 Mines")
-    .setDescription(description)
-    .setFooter({ text: "Mines • Cash out any time before hitting a mine" });
+  const stats = [
+    `**Bet** ${CREDITS_EMOJI} ${game.bet.toLocaleString()}  •  **Mines** 💣 ${game.mineCount}`,
+    `**Cash Out** ${CREDITS_EMOJI} ${cashOut.toLocaleString()}  •  **Next** ${next}`,
+  ];
+  if (status) stats.push(status);
+  else if (!game.finished) stats.push("Pick a tile to increase your cash-out.");
+
+  return {
+    type: ComponentType.Container,
+    accentColor: color,
+    components: [
+      { type: ComponentType.TextDisplay, content: `💣 <@${game.userId}> started a mines game.` },
+      { type: ComponentType.TextDisplay, content: stats.join("\n") },
+      { type: ComponentType.Separator, divider: true, spacing: SeparatorSpacingSize.Small },
+      ...rows.map((row) => row.toJSON()),
+      { type: ComponentType.Separator, divider: true, spacing: SeparatorSpacingSize.Small },
+      cashOutRow.toJSON(),
+    ],
+  };
 }
 
 async function settleWager(game: MinesGame, requestedPayout: number): Promise<number> {
@@ -149,8 +169,8 @@ async function finishGame(game: MinesGame, status: string, revealAll = true): Pr
   activeGames.delete(gameKey(game.guildId, game.userId));
   try {
     await game.message?.edit({
-      embeds: [gameEmbed(game, status)],
-      components: boardComponents(game, true, revealAll),
+      flags: MessageFlags.IsComponentsV2,
+      components: [gameContainer(game, status, true, revealAll)],
     });
   } finally {
     game.stopCollector?.();
@@ -227,8 +247,8 @@ async function handleMinesInteraction(game: MinesGame, interaction: ButtonIntera
     const gameMessage = game.message;
     if (!gameMessage) throw new Error("Mines game message is unavailable");
     await gameMessage.edit({
-      embeds: [gameEmbed(game)],
-      components: boardComponents(game),
+      flags: MessageFlags.IsComponentsV2,
+      components: [gameContainer(game)],
     });
   } finally {
     game.busy = false;
@@ -325,8 +345,8 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
 
     try {
       game.message = await message.reply({
-        embeds: [gameEmbed(game)],
-        components: boardComponents(game),
+        flags: MessageFlags.IsComponentsV2,
+        components: [gameContainer(game)],
       });
     } catch (error) {
       await settleWager(game, game.bet);
