@@ -16,7 +16,7 @@ export async function handleRobCommand(message: Message): Promise<void> {
 
   if (message.content.trim().split(/\s+/)[1]?.toLowerCase() === "help") {
     await message.reply(
-      "`!rob @user` — rob based on the target's current credit balance:\n" +
+      "`!rob @user` — rob only credits in the target's wallet; banked credits are safe:\n" +
       "• 1–1,000: up to 100 credits (or the remaining balance if lower)\n" +
       "• 1,001–5,000: 200 credits\n" +
       "• 5,001–10,000: 300 credits\n" +
@@ -109,7 +109,7 @@ export async function handleRobCommand(message: Message): Promise<void> {
     });
 
     if (result.status === "empty") {
-      await message.reply(`<@${target.id}> has no credits to rob.`);
+      await message.reply(`<@${target.id}> has no credits in their wallet to rob. Banked credits are safe.`);
     } else if (result.status === "daily-limit") {
       await message.reply(`⏳ You've reached your daily rob limit of ${ROB_DAILY_LIMIT}. Try again <t:${Math.ceil(result.nextResetAt / 1000)}:R> (UTC).`);
     } else if (result.status === "maximum") {

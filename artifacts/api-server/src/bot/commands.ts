@@ -60,6 +60,7 @@ import { handleStatusRoleCommand } from "./statusRole";
 import { handleGuildTagRoleCommand } from "./guildTagRole";
 import { handleAutoEmergencyCommand } from "./emergency";
 import { handleRobCommand } from "./rob";
+import { handleBankCommand } from "./bank";
 import { handleSetGamblingCommand } from "./gamblingChannel";
 import { handleCoinflipCommand, handleGambleCommand, logGamblingError } from "./gambling";
 import { handleMinesCommand } from "./mines";
@@ -144,7 +145,7 @@ export async function handleMessage(
     }
     return;
   }
-  if (lower === "!mines" || lower.startsWith("!mines ")) {
+  if (lower === "!mines" || lower.startsWith("!mines ") || lower === "!mine" || lower.startsWith("!mine ")) {
     try {
       await handleMinesCommand(message, content.split(/\s+/).slice(1));
     } catch (error) {
@@ -296,6 +297,8 @@ export async function handleMessage(
     await handleCreditCommand(message);
   } else if (lower === "!cash" || lower.startsWith("!cash ")) {
     await handleCreditCommand(message);
+  } else if (lower === "!bank" || lower.startsWith("!bank ")) {
+    await handleBankCommand(message);
   } else if (lower === "!rob" || lower.startsWith("!rob ")) {
     await handleRobCommand(message);
   } else if (lower === "!shop" || lower.startsWith("!shop ")) {

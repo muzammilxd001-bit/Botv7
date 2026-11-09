@@ -107,7 +107,7 @@ export async function handleCoinflipCommand(message: Message, args: string[] = m
   await resultMessage.edit(
     result.won
         ? `${COINFLIP_EMOJI} The coin spins... ${landedEmoji} and you won **${CREDITS_EMOJI} ${(result.bet * 2).toLocaleString()}**!`
-        : `${COINFLIP_EMOJI} The coin spins... ${landedEmoji} and you lost it all... :c`,
+        : `${COINFLIP_EMOJI} The coin spins... ${landedEmoji} and you lost it all — **${CREDITS_EMOJI} ${result.bet.toLocaleString()} credits**... :c`,
   );
 }
 
