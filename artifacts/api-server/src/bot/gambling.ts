@@ -34,10 +34,7 @@ function parseBet(value: string | undefined): number {
 export async function handleCoinflipCommand(message: Message, args: string[] = message.content.trim().split(/\s+/).slice(1)): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
-  if (!(await requireGamblingChannel(message))) {
-    await message.reply("❌ Gambling commands can only be used in the configured gambling channel.");
-    return;
-  }
+  if (!(await requireGamblingChannel(message))) return;
 
   const [first, second] = args;
   const allIn = first?.toLowerCase() === "all";
