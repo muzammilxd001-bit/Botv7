@@ -9,24 +9,28 @@ export async function handleBankCommand(message: Message): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
 
-  const [, action, amountArgument, extraArgument] = message.content.trim().split(/\s+/);
+  const [command, secondArgument, thirdArgument, fourthArgument] = message.content.trim().split(/\s+/);
+  const directAction = command?.toLowerCase() === "!deposit" || command?.toLowerCase() === "!withdraw";
+  const action = directAction ? command.slice(1) : secondArgument;
+  const amountArgument = directAction ? secondArgument : thirdArgument;
+  const extraArgument = directAction ? thirdArgument : fourthArgument;
   const normalizedAction = action?.toLowerCase();
   if (normalizedAction === "help" && !amountArgument && !extraArgument) {
     await message.reply(
       "🏦 **Bank Guide**\n" +
       "`!bank` — check your wallet and bank balances.\n" +
-      "`!bank deposit <amount|all>` — move credits from your wallet into your bank.\n" +
-      "`!bank withdraw <amount|all>` — move credits from your bank back into your wallet.\n" +
+      "`!bank deposit <amount|all>` or `!deposit <amount|all>` — move credits from your wallet into your bank.\n" +
+      "`!bank withdraw <amount|all>` or `!withdraw <amount|all>` — move credits from your bank back into your wallet.\n" +
       "Credits in your bank are safe from robbery; only wallet credits can be robbed. Use `!credit` to check both balances.",
     );
     return;
   }
   if (extraArgument || (normalizedAction && normalizedAction !== "deposit" && normalizedAction !== "withdraw")) {
-    await message.reply("Usage: `!bank help`, `!bank`, `!bank deposit <amount|all>`, or `!bank withdraw <amount|all>`.");
+    await message.reply("Usage: `!bank help`, `!bank`, `!bank deposit <amount|all>` / `!deposit <amount|all>`, or `!bank withdraw <amount|all>` / `!withdraw <amount|all>`.");
     return;
   }
   if (normalizedAction && !amountArgument) {
-    await message.reply("Usage: `!bank deposit <amount|all>` or `!bank withdraw <amount|all>`.");
+    await message.reply("Usage: `!bank deposit <amount|all>` / `!deposit <amount|all>`, or `!bank withdraw <amount|all>` / `!withdraw <amount|all>`.");
     return;
   }
 

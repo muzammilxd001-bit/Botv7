@@ -153,7 +153,7 @@ export async function handleCreditCommand(message: Message): Promise<void> {
       embeds: [new EmbedBuilder()
         .setColor(EMBED_COLOR)
         .setDescription(`<@${message.author.id}> | 💳 Wallet: **${credits.toLocaleString()} credits**\n🏦 Bank: **${bankCredits.toLocaleString()} credits** (safe from robbery)`)
-        .setFooter({ text: "Use !bank deposit <amount|all> to protect credits; !shop spends wallet credits." })],
+        .setFooter({ text: "Use !deposit <amount|all> to protect credits; !shop spends wallet credits." })],
       allowedMentions: { users: [] },
     });
   } catch (error) {

@@ -13,7 +13,7 @@ const BRAND_COLOR = 0x2b2d31;
 const SUCCESS_COLOR = BRAND_COLOR;
 const WARNING_COLOR = BRAND_COLOR;
 const ERROR_COLOR = BRAND_COLOR;
-const PLAIN_TEXT_COMMANDS = new Set(["cf", "coinflip", "gamble", "mines", "rob"]);
+const PLAIN_TEXT_COMMANDS = new Set(["cf", "coinflip", "gamble", "rob"]);
 
 function responseColor(_text: string): number {
   return BRAND_COLOR;
