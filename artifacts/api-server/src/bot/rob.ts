@@ -5,20 +5,15 @@ import { logger } from "../lib/logger";
 import { requireGamblingChannel } from "./gamblingChannel";
 
 const ROB_COOLDOWN_MS = 15_000;
-const MIN_TARGET_BALANCE = 50_000;
-const MIN_REWARD = 100;
-const MAX_REWARD = 1_000;
-const FAILURE_FINE = 100;
+const ROB_DAILY_LIMIT = 10;
+const DAY_MS = 24 * 60 * 60 * 1_000;
 const MAX_CREDIT_BALANCE = 2_147_483_647;
 const robCooldowns = new Map<string, number>();
 
 export async function handleRobCommand(message: Message): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
-  if (!(await requireGamblingChannel(message))) {
-    await message.reply("❌ Gambling commands can only be used in the configured gambling channel.");
-    return;
-  }
+  if (!(await requireGamblingChannel(message))) return;
 
   const targetUser = message.mentions.users.first();
   if (!targetUser || targetUser.bot || targetUser.id === message.author.id) {
@@ -61,23 +56,37 @@ export async function handleRobCommand(message: Message): Promise<void> {
       const robber = profiles.find((profile) => profile.userId === message.author.id);
       const victim = profiles.find((profile) => profile.userId === target.id);
       if (!robber || !victim) throw new Error("Could not load rob profiles");
-      if (victim.coins < MIN_TARGET_BALANCE) {
-        return { status: "protected" as const, balance: victim.coins };
+      const robDay = Math.floor(now / DAY_MS);
+      const dailyRobCount = robber.activityCooldowns.robDay === robDay
+        ? robber.activityCooldowns.robCount ?? 0
+        : 0;
+      if (dailyRobCount >= ROB_DAILY_LIMIT) {
+        return { status: "daily-limit" as const, nextResetAt: (robDay + 1) * DAY_MS };
+      }
+      if (victim.coins <= 0) {
+        return { status: "empty" as const };
       }
 
-      const success = Math.random() < 0.5;
-      if (!success) {
-        const balance = Math.max(0, robber.coins - FAILURE_FINE);
-        await tx.update(botMiningProfilesTable)
-          .set({ coins: balance, updatedAt: new Date(now) })
-          .where(and(eq(botMiningProfilesTable.guildId, guild.id), eq(botMiningProfilesTable.userId, robber.userId)));
-        return { status: "failed" as const, fine: Math.min(FAILURE_FINE, robber.coins), balance };
-      }
-
-      const reward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
+      const reward = victim.coins > 50_000
+        ? 1_000
+        : victim.coins > 10_000
+          ? 500
+          : victim.coins > 5_000
+            ? 300
+            : victim.coins > 1_000
+              ? 200
+              : Math.min(100, victim.coins);
       if (robber.coins + reward > MAX_CREDIT_BALANCE) return { status: "maximum" as const };
       await tx.update(botMiningProfilesTable)
-        .set({ coins: robber.coins + reward, updatedAt: new Date(now) })
+        .set({
+          coins: robber.coins + reward,
+          activityCooldowns: {
+            ...robber.activityCooldowns,
+            robDay,
+            robCount: dailyRobCount + 1,
+          },
+          updatedAt: new Date(now),
+        })
         .where(and(eq(botMiningProfilesTable.guildId, guild.id), eq(botMiningProfilesTable.userId, robber.userId)));
       await tx.update(botMiningProfilesTable)
         .set({ coins: victim.coins - reward, updatedAt: new Date(now) })
@@ -85,10 +94,10 @@ export async function handleRobCommand(message: Message): Promise<void> {
       return { status: "success" as const, reward, balance: robber.coins + reward };
     });
 
-    if (result.status === "protected") {
-      await message.reply(`<@${target.id}> is too poor to rob. They need at least **${MIN_TARGET_BALANCE.toLocaleString()} credits**.`);
-    } else if (result.status === "failed") {
-      await message.reply(`🚨 The rob failed! You lost **${result.fine.toLocaleString()} credits**.`);
+    if (result.status === "empty") {
+      await message.reply(`<@${target.id}> has no credits to rob.`);
+    } else if (result.status === "daily-limit") {
+      await message.reply(`⏳ You've reached your daily rob limit of ${ROB_DAILY_LIMIT}. Try again <t:${Math.ceil(result.nextResetAt / 1000)}:R> (UTC).`);
     } else if (result.status === "maximum") {
       await message.reply("That robbery would exceed your maximum credit balance.");
     } else {
