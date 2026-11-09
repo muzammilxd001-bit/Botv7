@@ -3,6 +3,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  EmbedBuilder,
   type ButtonInteraction,
   type Message,
 } from "discord.js";
@@ -105,12 +106,18 @@ function boardComponents(game: MinesGame, disabled = false, revealAll = false): 
   return rows;
 }
 
-function gameContent(game: MinesGame, status?: string): string {
+function gameEmbed(game: MinesGame, status?: string): EmbedBuilder {
   const payout = game.revealed.size > 0 ? calculatePayout(game) : 0;
   const progress = game.revealed.size > 0
-    ? `\nSafe tiles: **${game.revealed.size}** • Cash-out: **${CREDITS_EMOJI} ${payout.toLocaleString()}**`
+    ? `\n\nSafe tiles: **${game.revealed.size}** • Cash-out: **${CREDITS_EMOJI} ${payout.toLocaleString()}**`
     : "";
-  return `<@${game.userId}> wagered **${CREDITS_EMOJI} ${game.bet.toLocaleString()}** with **${game.mineCount} mines**. Pick a tile or use the button below to cash out.${progress}${status ? `\n${status}` : ""}`;
+  const description = `<@${game.userId}> wagered **${CREDITS_EMOJI} ${game.bet.toLocaleString()}** with **${game.mineCount} mines**. ${game.finished ? "" : "Pick a tile or use the button below to cash out."}${progress}${status ? `\n\n${status}` : ""}`;
+  const color = status?.startsWith("💥") ? 0xed4245 : status ? 0x57f287 : 0x5865f2;
+  return new EmbedBuilder()
+    .setColor(color)
+    .setTitle("💣 Mines")
+    .setDescription(description)
+    .setFooter({ text: "Mines • Cash out any time before hitting a mine" });
 }
 
 async function settleWager(game: MinesGame, requestedPayout: number): Promise<number> {
@@ -140,7 +147,7 @@ async function finishGame(game: MinesGame, status: string, revealAll = true): Pr
   activeGames.delete(gameKey(game.guildId, game.userId));
   try {
     await game.message?.edit({
-      content: gameContent(game, status),
+      embeds: [gameEmbed(game, status)],
       components: boardComponents(game, true, revealAll),
     });
   } finally {
@@ -218,7 +225,7 @@ async function handleMinesInteraction(game: MinesGame, interaction: ButtonIntera
     const gameMessage = game.message;
     if (!gameMessage) throw new Error("Mines game message is unavailable");
     await gameMessage.edit({
-      content: gameContent(game),
+      embeds: [gameEmbed(game)],
       components: boardComponents(game),
     });
   } finally {
@@ -232,7 +239,16 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
   if (!guild) return;
 
   if (args[0]?.toLowerCase() === "help") {
-    await message.reply("Usage: `!mines <bet> [mine-count]` — play a 5×5 board with 1–23 mines (default 3). Open safe tiles to raise your cash-out; use the board's Cash out button or `!mines cashout` to collect, or hit a mine and lose your wager. Bets: 1–250,000 credits.");
+    await message.reply({
+      embeds: [new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("💣 Mines Help")
+        .setDescription("Play a 5×5 board with 1–23 mines (default 3). Open safe tiles to raise your cash-out; use the board's **Cash out** button or `!mines cashout` to collect. Hit a mine and lose your wager.")
+        .addFields(
+          { name: "Bet", value: "`!mines <amount> [mine-count]` or `!mine <amount> [mine-count]` (1–250,000 credits)." },
+          { name: "All in", value: "`!mines all` wagers your full wallet balance. Add a mine count with `!mines all 5`." },
+        )],
+    });
     return;
   }
 
@@ -248,10 +264,11 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
     return;
   }
 
-  const bet = parsePositiveInteger(args[0]);
+  const allIn = args[0]?.toLowerCase() === "all";
+  const bet = allIn ? null : parsePositiveInteger(args[0]);
   const mineCount = args[1] === undefined ? DEFAULT_MINES : parsePositiveInteger(args[1]);
-  if (bet === null || bet < MIN_BET || bet > MAX_BET || mineCount === null || mineCount < MIN_MINES || mineCount > MAX_MINES) {
-    await message.reply(`Usage: \`!mines <bet> [mine-count]\` (bet: ${MIN_BET.toLocaleString()}–${MAX_BET.toLocaleString()}, mines: ${MIN_MINES}–${MAX_MINES}; default ${DEFAULT_MINES}).`);
+  if ((!allIn && (bet === null || bet < MIN_BET || bet > MAX_BET)) || mineCount === null || mineCount < MIN_MINES || mineCount > MAX_MINES) {
+    await message.reply(`Usage: \`!mines <bet|all> [mine-count]\` (bet: ${MIN_BET.toLocaleString()}–${MAX_BET.toLocaleString()} or all, mines: ${MIN_MINES}–${MAX_MINES}; default ${DEFAULT_MINES}).`);
     return;
   }
   if (activeGame) {
@@ -262,7 +279,7 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
     id: randomUUID(),
     guildId: guild.id,
     userId: message.author.id,
-    bet,
+    bet: bet ?? 0,
     mineCount,
     mines: selectMines(mineCount),
     revealed: new Set(),
@@ -285,10 +302,12 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
         ))
         .for("update");
       if (!profile) throw new Error("Could not load Mines credit profile");
-      if (profile.coins < bet) return { status: "insufficient" as const, balance: profile.coins };
+      const wager = allIn ? profile.coins : bet!;
+      if (wager < MIN_BET || profile.coins < wager) return { status: "insufficient" as const, balance: profile.coins };
+      game.bet = wager;
 
       await tx.update(botMiningProfilesTable)
-        .set({ coins: profile.coins - bet, updatedAt: new Date() })
+        .set({ coins: profile.coins - wager, updatedAt: new Date() })
         .where(and(
           eq(botMiningProfilesTable.guildId, guild.id),
           eq(botMiningProfilesTable.userId, message.author.id),
@@ -304,11 +323,11 @@ export async function handleMinesCommand(message: Message, args: string[] = mess
 
     try {
       game.message = await message.reply({
-        content: gameContent(game),
+        embeds: [gameEmbed(game)],
         components: boardComponents(game),
       });
     } catch (error) {
-      await settleWager(game, bet);
+      await settleWager(game, game.bet);
       throw error;
     }
 

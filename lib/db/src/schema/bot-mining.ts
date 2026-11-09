@@ -6,6 +6,7 @@ export const botMiningProfilesTable = pgTable(
     guildId: text("guild_id").notNull(),
     userId: text("user_id").notNull(),
     coins: integer("coins").notNull().default(0),
+    bankCoins: integer("bank_coins").notNull().default(0),
     creditDropsClaimed: integer("credit_drops_claimed").notNull().default(0),
     inventory: jsonb("inventory").$type<Record<string, number>>().notNull().default({}),
     equipment: jsonb("equipment").$type<Record<string, number>>().notNull().default({}),

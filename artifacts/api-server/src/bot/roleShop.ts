@@ -137,7 +137,10 @@ export async function handleCreditCommand(message: Message): Promise<void> {
 
   try {
     const [profile] = await db
-      .select({ credits: botMiningProfilesTable.coins })
+      .select({
+        credits: botMiningProfilesTable.coins,
+        bankCredits: botMiningProfilesTable.bankCoins,
+      })
       .from(botMiningProfilesTable)
       .where(and(
         eq(botMiningProfilesTable.guildId, guild.id),
@@ -145,11 +148,12 @@ export async function handleCreditCommand(message: Message): Promise<void> {
       ))
       .limit(1);
     const credits = profile?.credits ?? 0;
+    const bankCredits = profile?.bankCredits ?? 0;
     await message.reply({
       embeds: [new EmbedBuilder()
         .setColor(EMBED_COLOR)
-        .setDescription(`<@${message.author.id}> | <:16:1553581538074038372> You have **${credits.toLocaleString()} credits**`)
-        .setFooter({ text: "Use !shop to spend your credits on server roles." })],
+        .setDescription(`<@${message.author.id}> | 💳 Wallet: **${credits.toLocaleString()} credits**\n🏦 Bank: **${bankCredits.toLocaleString()} credits** (safe from robbery)`)
+        .setFooter({ text: "Use !bank deposit <amount|all> to protect credits; !shop spends wallet credits." })],
       allowedMentions: { users: [] },
     });
   } catch (error) {
@@ -533,7 +537,7 @@ export async function handleRoleShopCommand(message: Message, args: string[]): P
         const shopEmbed = new EmbedBuilder()
           .setColor(EMBED_COLOR)
           .setTitle(`Server role shop • ${page + 1}/${pageCount}`)
-          .setDescription(`${lines.join("\n")}\n\nBuy with \`!shop buy @role\`.`);
+          .setDescription(`${lines.join("\n")}\n\nBuy with \`!shop buy rolename\`.`);
         return { embeds: [shopEmbed], components };
       };
 
