@@ -6,6 +6,7 @@ import {
   ChannelType,
   EmbedBuilder,
   type ButtonInteraction,
+  type GuildMember,
   type Message,
   type StringSelectMenuInteraction,
   type TextChannel,
@@ -65,6 +66,7 @@ const GAME_EMOJIS = {
 type GameType = (typeof GAME_DROP_OPTIONS)[number]["value"];
 
 interface Round {
+  guildId: string;
   type: GameType;
   channelId: string;
   prompt: string;
@@ -73,6 +75,7 @@ interface Round {
   rewardTier: (typeof GAME_REWARD_TIERS)[number];
   imageUrl?: string;
   answerOptions?: string[];
+  nicknameTarget?: string;
   timer: NodeJS.Timeout;
 }
 
@@ -295,7 +298,7 @@ function countryFlag(code: string): string {
   return [...code.toUpperCase()].map((letter) => String.fromCodePoint(127397 + letter.charCodeAt(0))).join("");
 }
 
-function createQuestion(type: GameType): { prompt: string; answers: Set<string>; reward: number; imageUrl?: string; answerOptions?: string[] } {
+function createQuestion(type: GameType): { prompt: string; answers: Set<string>; reward: number; imageUrl?: string; answerOptions?: string[]; nicknameTarget?: string } {
   if (type === "capital-scramble") {
     const question = randomItem(CAPITAL_QUESTIONS);
     const scrambledCapital = scrambleWord(question.capital);
@@ -520,9 +523,10 @@ function createQuestion(type: GameType): { prompt: string; answers: Set<string>;
   if (type === "nickname") {
     const nickname = randomItem(["Shadow", "Starboy", "Dreamer", "Ace", "Blaze", "Moonlight"]);
     return {
-      prompt: `Unscramble this nickname: **${scrambleWord(nickname)}**`,
+      prompt: `Change your server nickname to **${nickname}**. The first player to set it wins!`,
       answers: new Set([normalize(nickname)]),
       reward: DEFAULT_GAME_REWARD,
+      nicknameTarget: nickname,
     };
   }
 
@@ -562,7 +566,10 @@ async function endRound(
   }
 
   await awardGameCredits(guildId, winnerId, round.reward);
-  await channel.send(premiumMessagePayload(`${round.rewardTier.icon} <@${winnerId}> solved **${gameLabel(round.type)}** first and won <:credits:1558505663531851933> **${round.reward} credits**!`, channel.client.user));
+  const winDescription = round.type === "nickname"
+    ? `${round.rewardTier.icon} <@${winnerId}> set their nickname to **${round.nicknameTarget}** first and won <:credits:1558505663531851933> **${round.reward} credits**!`
+    : `${round.rewardTier.icon} <@${winnerId}> solved **${gameLabel(round.type)}** first and won <:credits:1558505663531851933> **${round.reward} credits**!`;
+  await channel.send(premiumMessagePayload(winDescription, channel.client.user));
   return true;
 }
 
@@ -589,6 +596,7 @@ async function startGameRound(
   const question = createQuestion(type);
   const { tier: rewardTier, credits } = randomGameReward();
   const round = {
+    guildId,
     type,
     channelId: channel.id,
     prompt: question.prompt,
@@ -597,6 +605,7 @@ async function startGameRound(
     rewardTier,
     imageUrl: question.imageUrl,
     answerOptions: question.answerOptions,
+    nicknameTarget: question.nicknameTarget,
     timer: undefined as unknown as NodeJS.Timeout,
   } satisfies Round;
   round.timer = setTimeout(() => {
@@ -768,4 +777,25 @@ export async function handleCreditGameAnswer(message: Message): Promise<void> {
   if (!round || round.channelId !== message.channel.id) return;
   if (!round.answers.has(normalize(message.content))) return;
   await endRound(message.guild.id, message.channel as TextChannel, round, message.author.id, message);
+}
+
+export async function handleNicknameGameMemberUpdate(
+  oldMember: Pick<GuildMember, "nickname">,
+  newMember: GuildMember,
+): Promise<void> {
+  const nickname = newMember.nickname;
+  if (oldMember.nickname === nickname || !nickname) return;
+  const activeRound = [...rounds.values()].find((candidate) =>
+    candidate.guildId === newMember.guild.id &&
+    candidate.type === "nickname" &&
+    candidate.answers.has(normalize(nickname)),
+  );
+  if (!activeRound) return;
+
+  const channel = await newMember.guild.channels.fetch(activeRound.channelId);
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    logger.warn({ guildId: newMember.guild.id, channelId: activeRound.channelId }, "Could not find active nickname game channel");
+    return;
+  }
+  await endRound(newMember.guild.id, channel, activeRound, newMember.id);
 }
