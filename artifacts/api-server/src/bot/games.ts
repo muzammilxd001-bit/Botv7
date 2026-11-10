@@ -20,7 +20,7 @@ import { logger } from "../lib/logger";
 const ROUND_TIME_MS = 60_000;
 const DEFAULT_GAME_REWARD = 100;
 const GAME_DROP_COOLDOWN_MS = 15 * 60_000;
-const GAME_START_DELAY_MS = 60_000;
+const GAME_START_DELAY_MS = 10_000;
 const CORRECT_ANSWER_REACTION = "<:tick:1563231489435504650>";
 const GAME_REWARD_TIERS = [
   { name: "Common", icon: "<:common:1558505660470010070>", minCredits: 500, maxCredits: 1000, weight: 70 },
