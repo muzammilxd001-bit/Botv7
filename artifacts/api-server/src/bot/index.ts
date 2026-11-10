@@ -18,7 +18,7 @@ import { logger } from "../lib/logger";
 import { processUserMessageAutomations, sendMemberMessage } from "./automation";
 import { handleCreditDropReaction, startCreditDropScheduler } from "./crates";
 import { startFlagDropScheduler } from "./flagDrop";
-import { handleCreditGameInteraction, startGamesScheduler } from "./games";
+import { handleGameAnswerInteraction, handleGameDropInteraction } from "./games";
 import { handleStatusRolePresenceUpdate } from "./statusRole";
 import { handleGuildTagRoleUserUpdate } from "./guildTagRole";
 import {
@@ -54,7 +54,6 @@ export function createBot(): Client {
     client.user?.setActivity("🎉 Giveaways | !help | /help");
     startCreditDropScheduler(client);
     startFlagDropScheduler(client);
-    startGamesScheduler(client);
     startTempChannelCleanupScheduler(client);
     startReminderScheduler(client);
     void registerSlashCommands(client);
@@ -157,13 +156,24 @@ export function createBot(): Client {
       await handleSocialBackButton(interaction);
       return;
     }
-    if (interaction.isButton() && interaction.customId.startsWith("games:trivia:")) {
+    if (interaction.isButton() && interaction.customId.startsWith("games:answer:")) {
       try {
-        await handleCreditGameInteraction(interaction);
+        await handleGameAnswerInteraction(interaction);
       } catch (err) {
-        logger.error({ err, customId: interaction.customId }, "Error handling trivia answer");
+        logger.error({ err, customId: interaction.customId }, "Error handling game answer");
         if (!interaction.replied && !interaction.deferred) {
           await interaction.reply({ content: "Could not process that trivia answer.", ephemeral: true }).catch(() => {});
+        }
+      }
+      return;
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("games:drop:")) {
+      try {
+        await handleGameDropInteraction(interaction);
+      } catch (err) {
+        logger.error({ err, customId: interaction.customId }, "Error handling game drop selection");
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: "Could not process that game selection.", ephemeral: true }).catch(() => {});
         }
       }
       return;
