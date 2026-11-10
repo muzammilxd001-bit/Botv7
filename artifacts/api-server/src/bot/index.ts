@@ -16,7 +16,7 @@ import { handleJtcInteraction, handleVoiceStateUpdate, startTempChannelCleanupSc
 import { handleTicketInteraction } from "./tickets";
 import { logger } from "../lib/logger";
 import { processUserMessageAutomations, sendMemberMessage } from "./automation";
-import { handleGameAnswerInteraction, handleGameDropInteraction } from "./games";
+import { handleGameAnswerInteraction, handleGameDropInteraction, handleNicknameGameMemberUpdate } from "./games";
 import { handleStatusRolePresenceUpdate } from "./statusRole";
 import { handleGuildTagRoleUserUpdate } from "./guildTagRole";
 import {
@@ -92,6 +92,9 @@ export function createBot(): Client {
   });
 
   client.on("guildMemberUpdate", (oldMember, newMember) => {
+    void handleNicknameGameMemberUpdate(oldMember, newMember).catch((err) => {
+      logger.error({ err, guildId: newMember.guild.id, userId: newMember.id }, "Error handling nickname game update");
+    });
     if (oldMember.partial || oldMember.premiumSince || !newMember.premiumSince) return;
     void sendMemberMessage(client, newMember, "boost").catch((err) => {
       logger.error({ err, guildId: newMember.guild.id }, "Could not send boost message");
