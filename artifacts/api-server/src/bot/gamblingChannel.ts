@@ -1,6 +1,7 @@
 import { ChannelType, PermissionFlagsBits, type Message } from "discord.js";
 import { eq } from "drizzle-orm";
 import { botGamblingSettingsTable, db } from "@workspace/db";
+import { logger } from "../lib/logger";
 
 export async function handleSetGamblingCommand(message: Message, args: string[]): Promise<void> {
   const guild = message.guild;
@@ -41,14 +42,26 @@ export async function handleSetGamblingCommand(message: Message, args: string[])
   await message.reply(`✅ Gambling commands are now restricted to <#${channel.id}>.`);
 }
 
-export async function requireGamblingChannel(message: Message): Promise<boolean> {
+export async function requireGamblingChannel(message: Message, requireConfigured = false): Promise<boolean> {
   if (!message.guild) return false;
-  const [setting] = await db.select({ channelId: botGamblingSettingsTable.channelId })
-    .from(botGamblingSettingsTable)
-    .where(eq(botGamblingSettingsTable.guildId, message.guild.id))
-    .limit(1);
-  if (!setting || setting.channelId === message.channel.id) return true;
 
-  await message.reply(`❌ Gambling commands can only be used in <#${setting.channelId}>.`);
-  return false;
+  try {
+    const [setting] = await db.select({ channelId: botGamblingSettingsTable.channelId })
+      .from(botGamblingSettingsTable)
+      .where(eq(botGamblingSettingsTable.guildId, message.guild.id))
+      .limit(1);
+    if (!setting) {
+      if (!requireConfigured) return true;
+      await message.reply("❌ Deposits are only available in the configured gambling channel. A server admin can set it with `!setgambling #channel`.");
+      return false;
+    }
+    if (setting.channelId === message.channel.id) return true;
+
+    await message.reply(`❌ Gambling and bank deposit commands can only be used in <#${setting.channelId}>.`);
+    return false;
+  } catch (error) {
+    logger.error({ err: error, guildId: message.guild.id }, "Failed to verify gambling channel");
+    await message.reply("❌ Could not verify the gambling channel. Please try again shortly.");
+    return false;
+  }
 }
