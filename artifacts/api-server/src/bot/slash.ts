@@ -16,7 +16,6 @@ import { SOCIAL_ACTION_NAMES } from "./social";
 import { bumpStickyForChannel } from "./automation";
 import { premiumEmbed } from "./presentation";
 import { VC_HELP_TEXT } from "./joinToCreate";
-import { requireCommandChannelForInteraction } from "./commandChannel";
 
 const slashCommands = [
   new SlashCommandBuilder()
@@ -289,10 +288,6 @@ const slashCommands = [
     .setName("setgame")
     .setDescription("Add a channel where server games can be played.")
     .addChannelOption((o) => o.setName("channel").setDescription("Games text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("setcommandchannel")
-    .setDescription("Set the channel where bot commands are allowed.")
-    .addChannelOption((o) => o.setName("channel").setDescription("Bot commands text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder()
     .setName("setchatreward")
     .setDescription("Choose where active chat rewards are announced.")
@@ -678,10 +673,6 @@ function buildLegacyContent(interaction: ChatInputCommandInteraction): string {
       const channel = interaction.options.getChannel("channel");
       return channel ? `!setgame <#${channel.id}>` : "!setgame status";
     }
-    case "setcommandchannel": {
-      const channel = interaction.options.getChannel("channel");
-      return channel ? `!setcommandchannel <#${channel.id}>` : "!setcommandchannel status";
-    }
     case "setchatreward": {
       const channel = interaction.options.getChannel("channel");
       return channel ? `!setchatreward <#${channel.id}>` : "!setchatreward status";
@@ -912,7 +903,6 @@ export async function handleSlashCommand(client: Client, interaction: ChatInputC
 
   try {
     if (interaction.commandName === "help") {
-      if (!(await requireCommandChannelForInteraction(interaction))) return;
       await interaction.reply({
         content: "For private command instructions, send `!help` or `!help games` to me in a direct message.",
         ephemeral: true,
@@ -921,7 +911,6 @@ export async function handleSlashCommand(client: Client, interaction: ChatInputC
     }
 
     if (interaction.commandName === "voice") {
-      if (!(await requireCommandChannelForInteraction(interaction))) return;
       await interaction.reply({ content: VC_HELP_TEXT, ephemeral: true });
       return;
     }

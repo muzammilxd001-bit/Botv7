@@ -141,7 +141,6 @@ function page3(): EmbedBuilder {
   return helpPage("⚙️ Server Controls")
     .addFields(
       { name: "`!noprefix @role` • `/noprefix`", value: "Let a role use commands without `!`; use `remove` to disable it.\n*(Manage Server)*" },
-      { name: "`!setcommandchannel #channel` • `/setcommandchannel channel`", value: "Restrict all prefix and slash commands to one channel. Check with `status`, or remove the restriction with `remove`. *(Manage Server; this setup command works from any channel.)*" },
       { name: "`!socialrole set @role1 @role2...` • `/socialrole set`", value: "Require any one of several server roles to use social actions like `!kiss` and `!hug`. Check `status` or clear with `remove|clear|off`.\n*(Manage Server)*" },
       { name: "`!role @user @role|Role Name` • `/role`", value: "Add or remove a role using its mention or exact name (including spaces).\n*(Manage Roles)*" },
       { name: "`!nick @user <name|reset>` • `/nick`", value: "Change or reset a member nickname.\n*(Manage Nicknames)*" },
