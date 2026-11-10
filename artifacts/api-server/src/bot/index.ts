@@ -16,8 +16,6 @@ import { handleJtcInteraction, handleVoiceStateUpdate, startTempChannelCleanupSc
 import { handleTicketInteraction } from "./tickets";
 import { logger } from "../lib/logger";
 import { processUserMessageAutomations, sendMemberMessage } from "./automation";
-import { handleCreditDropReaction, startCreditDropScheduler } from "./crates";
-import { startFlagDropScheduler } from "./flagDrop";
 import { handleGameAnswerInteraction, handleGameDropInteraction } from "./games";
 import { handleStatusRolePresenceUpdate } from "./statusRole";
 import { handleGuildTagRoleUserUpdate } from "./guildTagRole";
@@ -52,8 +50,6 @@ export function createBot(): Client {
   client.once("clientReady", () => {
     logger.info({ tag: client.user?.tag }, "Discord bot is ready");
     client.user?.setActivity("🎉 Giveaways | !help | /help");
-    startCreditDropScheduler(client);
-    startFlagDropScheduler(client);
     startTempChannelCleanupScheduler(client);
     startReminderScheduler(client);
     void registerSlashCommands(client);
@@ -204,7 +200,6 @@ export function createBot(): Client {
   client.on("messageReactionAdd", async (reaction: MessageReaction, user: User) => {
     try {
       if (user.bot) return;
-      await handleCreditDropReaction(reaction, user);
       if (reaction.emoji.name !== "🎉") return;
 
       if (reaction.partial) await reaction.fetch();

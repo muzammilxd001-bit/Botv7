@@ -308,81 +308,6 @@ const slashCommands = [
     .addUserOption((o) => o.setName("user1").setDescription("First member").setRequired(true))
     .addUserOption((o) => o.setName("user2").setDescription("Second member").setRequired(true)),
 
-  // ── Newly added commands for complete coverage ─────────────────────────────
-  new SlashCommandBuilder()
-    .setName("creditdrop")
-    .setDescription("Configure timed credit drops.")
-    .addSubcommand((sub) =>
-      sub
-        .setName("setup")
-        .setDescription("Setup credit drop channel and optional interval.")
-        .addChannelOption((o) => o.setName("channel").setDescription("Text channel").addChannelTypes(ChannelType.GuildText).setRequired(true))
-        .addStringOption((o) => o.setName("interval").setDescription("Interval e.g. 15m or 1h")),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("remove")
-        .setDescription("Remove credit drops from a channel.")
-        .addChannelOption((o) => o.setName("channel").setDescription("Text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("interval")
-        .setDescription("Change credit drop interval.")
-        .addStringOption((o) => o.setName("interval").setDescription("Interval e.g. 30m or 1h").setRequired(true))
-        .addChannelOption((o) => o.setName("channel").setDescription("Optional text channel").addChannelTypes(ChannelType.GuildText)),
-    )
-    .addSubcommand((sub) => sub.setName("status").setDescription("View credit drop settings."))
-    .addSubcommand((sub) =>
-      sub
-        .setName("pause")
-        .setDescription("Pause credit drops.")
-        .addChannelOption((o) => o.setName("channel").setDescription("Optional text channel").addChannelTypes(ChannelType.GuildText)),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("resume")
-        .setDescription("Resume credit drops.")
-        .addChannelOption((o) => o.setName("channel").setDescription("Optional text channel").addChannelTypes(ChannelType.GuildText)),
-    ),
-
-  new SlashCommandBuilder()
-    .setName("flagdrop")
-    .setDescription("Configure country flag drops.")
-    .addSubcommand((sub) =>
-      sub
-        .setName("setup")
-        .setDescription("Setup flag drop channel and optional interval.")
-        .addChannelOption((o) => o.setName("channel").setDescription("Text channel").addChannelTypes(ChannelType.GuildText).setRequired(true))
-        .addStringOption((o) => o.setName("interval").setDescription("Interval e.g. 30m or 1h")),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("remove")
-        .setDescription("Remove flag drops from a channel.")
-        .addChannelOption((o) => o.setName("channel").setDescription("Text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("interval")
-        .setDescription("Change flag drop interval.")
-        .addStringOption((o) => o.setName("interval").setDescription("Interval e.g. 30m or 1h").setRequired(true))
-        .addChannelOption((o) => o.setName("channel").setDescription("Optional text channel").addChannelTypes(ChannelType.GuildText)),
-    )
-    .addSubcommand((sub) => sub.setName("status").setDescription("View flag drop settings."))
-    .addSubcommand((sub) =>
-      sub
-        .setName("pause")
-        .setDescription("Pause flag drops.")
-        .addChannelOption((o) => o.setName("channel").setDescription("Optional text channel").addChannelTypes(ChannelType.GuildText)),
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("resume")
-        .setDescription("Resume flag drops.")
-        .addChannelOption((o) => o.setName("channel").setDescription("Optional text channel").addChannelTypes(ChannelType.GuildText)),
-    ),
-
   new SlashCommandBuilder()
     .setName("credit")
     .setDescription("Check your or another member's credit balance.")
@@ -714,18 +639,6 @@ function buildLegacyContent(interaction: ChatInputCommandInteraction): string {
       const lobby = interaction.options.getChannel("channel");
       const category = interaction.options.getChannel("category");
       return `!jtc set ${lobby ? `<#${lobby.id}>` : ""} ${category ? `<#${category.id}>` : ""}`.trim();
-    }
-    case "creditdrop":
-    case "flagdrop": {
-      const sub = interaction.options.getSubcommand(false) ?? "status";
-      const channel = interaction.options.getChannel("channel");
-      const channelText = channel ? `<#${channel.id}>` : "";
-      const interval = string("interval");
-      if (sub === "setup") return `!${name} setup ${channelText} ${interval}`.trim();
-      if (sub === "interval") return `!${name} interval ${interval} ${channelText}`.trim();
-      if (sub === "remove") return `!${name} remove ${channelText}`.trim();
-      if (sub === "pause" || sub === "resume") return `!${name} ${sub} ${channelText}`.trim();
-      return `!${name} status`;
     }
     case "credit":
     case "credits":
