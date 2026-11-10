@@ -53,8 +53,6 @@ import { handleQuoteRoleCommand, handleSetQuoteCommand } from "./quoteChannel";
 import { handleCreditCommand, handleCreditLeaderboardCommand, handleCreditTransferCommand, handleRoleShopCommand } from "./roleShop";
 import { awardChatCredits, handleActiveChatRewardChannelCommand, handleDailyCommand } from "./credits";
 import { handleCreditGameAnswer, handleCreditGameCommand } from "./games";
-import { handleCreditDropCommand } from "./crates";
-import { handleFlagDropAnswer, handleFlagDropCommand } from "./flagDrop";
 import { handleEmbedCommand } from "./embeds";
 import { handleStatusRoleCommand } from "./statusRole";
 import { handleGuildTagRoleCommand } from "./guildTagRole";
@@ -100,22 +98,10 @@ export async function handleMessage(
 
   await handleAfk(message, content);
 
-  if (!raw.startsWith("!")) {
-    await handleFlagDropAnswer(message);
-  }
-
   if (!content.startsWith("!") && !noPrefix) return;
 
   const lower = content.toLowerCase();
 
-  if (lower === "!creditdrop" || lower.startsWith("!creditdrop ")) {
-    await handleCreditDropCommand(message);
-    return;
-  }
-  if (lower === "!flagdrop" || lower.startsWith("!flagdrop ")) {
-    await handleFlagDropCommand(message);
-    return;
-  }
   if (lower === "!setchatreward" || lower.startsWith("!setchatreward ")) {
     await handleActiveChatRewardChannelCommand(message, content.split(/\s+/).slice(1));
     return;
