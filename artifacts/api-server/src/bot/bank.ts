@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { type Message } from "discord.js";
 import { botMiningProfilesTable, db } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { requireGamblingChannel } from "./gamblingChannel";
 
 const MAX_CREDIT_BALANCE = 2_147_483_647;
 
@@ -19,7 +20,7 @@ export async function handleBankCommand(message: Message): Promise<void> {
     await message.reply(
       "🏦 **Bank Guide**\n" +
       "`!bank` — check your wallet and bank balances.\n" +
-      "`!bank deposit <amount|all>` or `!deposit <amount|all>` — move credits from your wallet into your bank.\n" +
+      "`!bank deposit <amount|all>` or `!deposit <amount|all>` — move credits from your wallet into your bank in the configured gambling channel.\n" +
       "`!bank withdraw <amount|all>` or `!withdraw <amount|all>` — move credits from your bank back into your wallet.\n" +
       "Credits in your bank are safe from robbery; only wallet credits can be robbed. Use `!credit` to check both balances.",
     );
@@ -41,6 +42,7 @@ export async function handleBankCommand(message: Message): Promise<void> {
     await message.reply("Enter a positive whole number of credits or `all`.");
     return;
   }
+  if (normalizedAction === "deposit" && !(await requireGamblingChannel(message, true))) return;
 
   try {
     const result = await db.transaction(async (tx) => {
