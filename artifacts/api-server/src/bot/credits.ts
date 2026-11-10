@@ -9,9 +9,9 @@ const ACTIVE_CHAT_WINDOW_MS = 10 * 60_000;
 const RANDOM_REWARD_INTERVAL_MS = 30 * 60_000;
 const RANDOM_REWARD_ANNOUNCEMENT_DELAY_MS = 60_000;
 const RANDOM_REWARD_TIERS = [
-  { name: "Common", icon: "<:common:1558505660470010070>", credits: 50, weight: 750, color: 0x95a5a6 },
-  { name: "Rare", icon: "<:epic:1558393073204076607>", credits: 100, weight: 249, color: 0x3498db },
-  { name: "Epic", icon: "🔷", credits: 200, weight: 1, color: 0xf1c40f },
+  { name: "Common", icon: "<:common:1558505660470010070>", minCredits: 500, maxCredits: 1000, weight: 750, color: 0x95a5a6 },
+  { name: "Rare", icon: "<:rare:1562815035091329034>", minCredits: 1000, maxCredits: 2000, weight: 249, color: 0x3498db },
+  { name: "Epic", icon: "<:epic:1558393073204076607>", minCredits: 3000, maxCredits: 5000, weight: 1, color: 0xf1c40f },
 ] as const;
 const chatCreditCooldowns = new Map<string, number>();
 const activeChatters = new Map<string, Map<string, { messageTimes: number[]; displayName: string }>>();
@@ -62,7 +62,12 @@ async function maybeAwardRandomChatReward(message: Message, now: number): Promis
     const rewards = winners.map(([userId, chatter], index) => ({
       userId,
       chatter,
-      reward: selectedTiers[index]!,
+      reward: {
+        ...selectedTiers[index]!,
+        credits: Math.floor(
+          Math.random() * (selectedTiers[index]!.maxCredits - selectedTiers[index]!.minCredits + 1),
+        ) + selectedTiers[index]!.minCredits,
+      },
     }));
     await db.transaction(async (tx) => {
       for (const { userId, reward } of rewards) {
