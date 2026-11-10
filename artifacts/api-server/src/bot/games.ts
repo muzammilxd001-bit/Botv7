@@ -562,7 +562,7 @@ async function endRound(
   }
 
   await awardGameCredits(guildId, winnerId, round.reward);
-  await channel.send(premiumMessagePayload(`${round.rewardTier.icon} <@${winnerId}> solved **${gameLabel(round.type)}** first and won **${round.reward} credits**!`, channel.client.user));
+  await channel.send(premiumMessagePayload(`${round.rewardTier.icon} <@${winnerId}> solved **${gameLabel(round.type)}** first and won <:credits:1558505663531851933> **${round.reward} credits**!`, channel.client.user));
   return true;
 }
 
@@ -607,7 +607,7 @@ async function startGameRound(
   const embed = new EmbedBuilder()
     .setColor(premiumColors.brand)
     .setTitle(`${gameEmoji(type)} ${gameLabel(type)}`)
-    .setDescription(`${round.prompt}\n\n${GAME_EMOJIS.trophy} First correct answer wins ${round.rewardTier.icon} **${round.reward} credits**.\n${GAME_EMOJIS.time} You have **60 seconds**!`);
+    .setDescription(`${round.prompt}\n\n${GAME_EMOJIS.trophy} First correct answer wins ${round.rewardTier.icon} <:credits:1558505663531851933> **${round.reward} credits**.\n${GAME_EMOJIS.time} You have **60 seconds**!`);
   if (round.imageUrl) embed.setImage(round.imageUrl);
 
   await channel.send({
@@ -753,13 +753,13 @@ export async function handleGameAnswerInteraction(interaction: ButtonInteraction
     await interaction.reply({ content: "Someone already answered this game correctly.", ephemeral: true });
     return;
   }
-  await interaction.reply({ content: `${round.rewardTier.icon} Correct! You won **${round.reward} credits**!`, ephemeral: true });
+  await interaction.reply({ content: `${round.rewardTier.icon} Correct! You won <:credits:1558505663531851933> **${round.reward} credits**!`, ephemeral: true });
   await interaction.message.edit({ components: answerButtons(guildId, channelId, round.answerOptions, true) }).catch((error: unknown) => {
     logger.warn({ err: error, guildId, channelId, messageId: interaction.message.id }, "Could not disable game answer buttons");
   });
   await reactToCorrectAnswer(interaction.message, guildId, channelId);
   await awardGameCredits(guildId, interaction.user.id, round.reward);
-  await channel.send(premiumMessagePayload(`${round.rewardTier.icon} <@${interaction.user.id}> selected the correct answer and won **${round.reward} credits**!`, channel.client.user));
+  await channel.send(premiumMessagePayload(`${round.rewardTier.icon} <@${interaction.user.id}> selected the correct answer and won <:credits:1558505663531851933> **${round.reward} credits**!`, channel.client.user));
 }
 
 export async function handleCreditGameAnswer(message: Message): Promise<void> {
