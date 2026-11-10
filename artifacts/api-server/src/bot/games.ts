@@ -2,25 +2,53 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   ChannelType,
   EmbedBuilder,
   type ButtonInteraction,
   type Message,
+  type StringSelectMenuInteraction,
   type TextChannel,
 } from "discord.js";
-import { and, eq } from "drizzle-orm";
-import { botGameSettingsTable, db } from "@workspace/db";
 import { premiumColors, premiumMessagePayload } from "./presentation";
 import { awardGameCredits } from "./credits";
+import { requireGameChannel } from "./gameChannel";
+import { FLAG_COUNTRIES } from "./flagCountries";
 import { logger } from "../lib/logger";
 
 const ROUND_TIME_MS = 60_000;
-const DEFAULT_INTERVAL_MINUTES = 30;
-const MIN_INTERVAL_MINUTES = 1;
-const MAX_INTERVAL_MINUTES = 24 * 60;
-const MAX_REWARD = 2_147_483_647;
 const DEFAULT_GAME_REWARD = 100;
+const GAME_DROP_COOLDOWN_MS = 15 * 60_000;
+const GAME_START_DELAY_MS = 60_000;
 const CORRECT_ANSWER_REACTION = "<:tick:1563231489435504650>";
+const GAME_REWARD_TIERS = [
+  { name: "Common", icon: "<:common:1558505660470010070>", minCredits: 500, maxCredits: 1000, weight: 70 },
+  { name: "Rare", icon: "<:rare:1562815035091329034>", minCredits: 1000, maxCredits: 2000, weight: 25 },
+  { name: "Epic", icon: "<:epic:1558393073204076607>", minCredits: 3000, maxCredits: 5000, weight: 5 },
+] as const;
+const GAME_DROP_OPTIONS = [
+  { name: "Button Hunt", value: "button-hunt", emoji: { name: "click", id: "1569688192976691271" } },
+  { name: "Dice Roll Duel", value: "dice-roll-duel", emoji: { name: "dice", id: "1569688195786874880" } },
+  { name: "Word Backwards", value: "word-backwards", emoji: { name: "chat", id: "1563228192259575929", animated: true } },
+  { name: "Word Scramble", value: "word-scramble", emoji: { name: "scramble", id: "1569688200577024010" } },
+  { name: "Guess the Celebrity", value: "guess-the-celebrity", emoji: { name: "GrayUser", id: "1569688203038953573" } },
+  { name: "Guess the Landmark", value: "guess-the-landmark", emoji: { name: "📍" } },
+  { name: "Pattern Puzzle", value: "pattern-puzzle", emoji: { name: "maths", id: "1569688205324722357" } },
+  { name: "Capital Scramble", value: "capital-scramble", emoji: { name: "world", id: "1563228194247802882" } },
+  { name: "Red Light Green Light", value: "red-light-green-light", emoji: { name: "Trafficlight", id: "1569688209934389339", animated: true } },
+  { name: "Missing Emoji", value: "missing-emoji", emoji: { name: "❓" } },
+  { name: "Sequence Hunt", value: "sequence-hunt", emoji: { name: "Repeat", id: "1569688212748898324" } },
+  { name: "Color Hunt", value: "color-hunt", emoji: { name: "Color", id: "1569688215064150053" } },
+  { name: "Emoji Equation", value: "emoji-equation", emoji: { name: "quest", id: "1569688441162039408" } },
+  { name: "Flag", value: "flag", emoji: { name: "world", id: "1563228194247802882" } },
+  { name: "Reaction", value: "reaction", emoji: { name: "reaction", id: "1569688445373390948" } },
+  { name: "Language", value: "language", emoji: { name: "category", id: "1569688447613018162" } },
+  { name: "Word", value: "word", emoji: { name: "edit", id: "1569688450012024852" } },
+  { name: "Nickname", value: "nickname", emoji: { name: "GrayUser", id: "1569688203038953573" } },
+  { name: "Emoji", value: "emoji", emoji: { name: "smile", id: "1562366972015026278" } },
+  { name: "Trivia", value: "trivia", emoji: { name: "search", id: "1569688457003929630" } },
+  { name: "HILO", value: "hilo", emoji: { name: "rankings", id: "1569688462389678150" } },
+] as const;
 const GAME_EMOJIS = {
   capital: "<:world:1563228194247802882>",
   celebrity: "<:trophy:1558393071224365102>",
@@ -34,7 +62,7 @@ const GAME_EMOJIS = {
   credits: "<:credits:1558505663531851933>",
 } as const;
 
-type GameType = "capital" | "celebrity" | "letter" | "trivia" | "math" | "number";
+type GameType = (typeof GAME_DROP_OPTIONS)[number]["value"];
 
 interface Round {
   type: GameType;
@@ -42,8 +70,9 @@ interface Round {
   prompt: string;
   answers: Set<string>;
   reward: number;
+  rewardTier: (typeof GAME_REWARD_TIERS)[number];
   imageUrl?: string;
-  triviaOptions?: string[];
+  answerOptions?: string[];
   timer: NodeJS.Timeout;
 }
 
@@ -194,8 +223,11 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
 ];
 
 const rounds = new Map<string, Round>();
-let scheduler: NodeJS.Timeout | undefined;
-let schedulerRunning = false;
+const gameDropCooldowns = new Map<string, number>();
+
+function gameDropCooldownKey(guildId: string, userId: string): string {
+  return `${guildId}:${userId}`;
+}
 
 function normalize(value: string): string {
   return value
@@ -203,7 +235,7 @@ function normalize(value: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/[^\p{L}\p{N}\p{Extended_Pictographic}\p{Regional_Indicator} ]/gu, "")
     .replace(/\s+/g, " ");
 }
 
@@ -211,26 +243,30 @@ function randomItem<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)]!;
 }
 
-function parseInterval(value: string | undefined): number | null {
-  const match = /^(\d+)(m|h)$/i.exec(value ?? "");
-  if (!match) return null;
-  const amount = Number(match[1]);
-  const minutes = amount * (match[2]!.toLowerCase() === "h" ? 60 : 1);
-  return Number.isSafeInteger(minutes) && minutes >= MIN_INTERVAL_MINUTES && minutes <= MAX_INTERVAL_MINUTES
-    ? minutes
-    : null;
+function randomGameReward(): { tier: (typeof GAME_REWARD_TIERS)[number]; credits: number } {
+  let tierPick = Math.random() * GAME_REWARD_TIERS.reduce((total, tier) => total + tier.weight, 0);
+  const tier = GAME_REWARD_TIERS.find((candidate) => {
+    tierPick -= candidate.weight;
+    return tierPick < 0;
+  }) ?? GAME_REWARD_TIERS[0];
+  const credits = Math.floor(Math.random() * (tier.maxCredits - tier.minCredits + 1)) + tier.minCredits;
+  return { tier, credits };
 }
 
-function parseReward(value: string | undefined): number | null {
-  if (!/^\d+$/.test(value ?? "")) return null;
-  const reward = Number(value);
-  return Number.isSafeInteger(reward) && reward >= 1 && reward <= MAX_REWARD ? reward : null;
+function gameEmojiMarkup(emoji: (typeof GAME_DROP_OPTIONS)[number]["emoji"]): string {
+  if (!("id" in emoji)) return emoji.name;
+  return `<${"animated" in emoji && emoji.animated ? "a" : ""}:${emoji.name}:${emoji.id}>`;
 }
 
-function triviaButtons(guildId: string, channelId: string, options: string[], disabled = false): ActionRowBuilder<ButtonBuilder>[] {
+function gameEmoji(type: GameType): string {
+  const game = GAME_DROP_OPTIONS.find((option) => option.value === type);
+  return game ? gameEmojiMarkup(game.emoji) : GAME_EMOJIS.trophy;
+}
+
+function answerButtons(guildId: string, channelId: string, options: string[], disabled = false): ActionRowBuilder<ButtonBuilder>[] {
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(
     options.map((option, index) => new ButtonBuilder()
-      .setCustomId(`games:trivia:${guildId}:${channelId}:${index}`)
+      .setCustomId(`games:answer:${guildId}:${channelId}:${index}`)
       .setLabel(option.slice(0, 80))
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(disabled)),
@@ -242,39 +278,35 @@ function roundKey(guildId: string, channelId: string): string {
 }
 
 function gameLabel(type: GameType): string {
-  const labels: Record<GameType, string> = {
-    capital: "Country Capitals",
-    celebrity: "Celebrity Identify",
-    letter: "Letter + Theme",
-    trivia: "Trivia Quiz",
-    math: "Math Challenge",
-    number: "Guess the Number",
-  };
-  return labels[type];
+  return GAME_DROP_OPTIONS.find((option) => option.value === type)?.name ?? type;
 }
 
-function parseGameType(value: string | undefined): GameType | null {
-  const normalized = value?.toLowerCase();
-  if (normalized === "capital" || normalized === "capitals") return "capital";
-  if (normalized === "celebrity" || normalized === "celeb") return "celebrity";
-  if (normalized === "letter" || normalized === "theme") return "letter";
-  if (normalized === "trivia" || normalized === "quiz") return "trivia";
-  if (normalized === "math" || normalized === "mathematics") return "math";
-  if (normalized === "number" || normalized === "guess" || normalized === "count" || normalized === "counting") return "number";
-  return null;
+function scrambleWord(word: string): string {
+  const letters = [...word];
+  for (let index = letters.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [letters[index], letters[swapIndex]] = [letters[swapIndex]!, letters[index]!];
+  }
+  const scrambled = letters.join("");
+  return scrambled.toLowerCase() === word.toLowerCase() ? [...letters].reverse().join("") : scrambled;
 }
 
-function createQuestion(type: GameType): { prompt: string; answers: Set<string>; reward: number; imageUrl?: string; triviaOptions?: string[] } {
-  if (type === "capital") {
+function countryFlag(code: string): string {
+  return [...code.toUpperCase()].map((letter) => String.fromCodePoint(127397 + letter.charCodeAt(0))).join("");
+}
+
+function createQuestion(type: GameType): { prompt: string; answers: Set<string>; reward: number; imageUrl?: string; answerOptions?: string[] } {
+  if (type === "capital-scramble") {
     const question = randomItem(CAPITAL_QUESTIONS);
+    const scrambledCapital = scrambleWord(question.capital);
     return {
-      prompt: `What is the capital of **${question.country}**?`,
+      prompt: `Unscramble the capital of **${question.country}**: **${scrambledCapital}**`,
       answers: new Set([normalize(question.capital), ...(question.aliases ?? []).map(normalize)]),
       reward: DEFAULT_GAME_REWARD,
     };
   }
 
-  if (type === "celebrity") {
+  if (type === "guess-the-celebrity") {
     const question = randomItem(CELEBRITY_QUESTIONS);
     return {
       prompt: `Who am I?\n${question.clues}`,
@@ -284,11 +316,19 @@ function createQuestion(type: GameType): { prompt: string; answers: Set<string>;
     };
   }
 
-  if (type === "letter") {
-    const question = randomItem(LETTER_QUESTIONS);
+  if (type === "language") {
+    const question = randomItem([
+      { phrase: "Hola", language: "Spanish", answer: "hello" },
+      { phrase: "Merci", language: "French", answer: "thank you", aliases: ["thanks"] },
+      { phrase: "Danke", language: "German", answer: "thank you", aliases: ["thanks"] },
+      { phrase: "Arigato", language: "Japanese", answer: "thank you", aliases: ["thanks"] },
+      { phrase: "Gato", language: "Spanish", answer: "cat" },
+      { phrase: "Chat", language: "French", answer: "cat" },
+      { phrase: "Amigo", language: "Spanish", answer: "friend" },
+    ]);
     return {
-      prompt: `**LETTER: ${question.letter}**\n**THEME: ${question.theme.toUpperCase()}**\nName something in this theme that starts with **${question.letter}**.`,
-      answers: new Set(question.answers.map((answer) => normalize(answer))),
+      prompt: `Translate **${question.phrase}** from **${question.language}** to English.`,
+      answers: new Set([normalize(question.answer), ...(question.aliases ?? []).map(normalize)]),
       reward: DEFAULT_GAME_REWARD,
     };
   }
@@ -303,30 +343,205 @@ function createQuestion(type: GameType): { prompt: string; answers: Set<string>;
     const options = [question.answer, ...distractors].sort(() => Math.random() - 0.5);
     return {
       prompt: question.question,
-      answers: new Set([normalize(question.answer), ...(question.aliases ?? []).map(normalize)]),
+      answers: new Set([String(options.findIndex((option) => normalize(option) === normalize(question.answer)))]),
       reward: DEFAULT_GAME_REWARD,
-      triviaOptions: options,
+      answerOptions: options,
     };
   }
 
-  if (type === "math") {
-    const first = Math.floor(Math.random() * 41) + 10;
-    const second = Math.floor(Math.random() * 9) + 2;
-    const operation = randomItem(["+", "-", "×"] as const);
-    const answer = operation === "+" ? first + second : operation === "-" ? first - second : first * second;
+  if (type === "pattern-puzzle") {
+    const start = Math.floor(Math.random() * 5) + 2;
+    const multiplier = Math.floor(Math.random() * 3) + 2;
+    const numbers = [start, start * multiplier, start * multiplier ** 2];
     return {
-      prompt: `Solve: **${first} ${operation} ${second} = ?**`,
+      prompt: `Find the next number: **${numbers.join(", ")}, ?**`,
+      answers: new Set([String(numbers[2]! * multiplier)]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "emoji-equation") {
+    const first = Math.floor(Math.random() * 8) + 2;
+    const second = Math.floor(Math.random() * 8) + 2;
+    const operation = randomItem(["+", "−", "×"] as const);
+    const answer = operation === "+" ? first + second : operation === "−" ? first - second : first * second;
+    const symbols = ["🍎", "🍋", "🍇", "🍒", "🥝", "🍉", "🍊", "🍓"];
+    return {
+      prompt: `Solve: **${randomItem(symbols)} (${first}) ${operation} ${randomItem(symbols)} (${second}) = ?**`,
       answers: new Set([String(answer)]),
       reward: DEFAULT_GAME_REWARD,
     };
   }
 
-  const answer = Math.floor(Math.random() * 10) + 1;
-  return {
-    prompt: "Guess the secret number between **1 and 10**.",
-    answers: new Set([String(answer)]),
-    reward: DEFAULT_GAME_REWARD,
-  };
+  if (type === "dice-roll-duel") {
+    const first = Math.floor(Math.random() * 6) + 1;
+    const second = Math.floor(Math.random() * 6) + 1;
+    return {
+      prompt: `🎲 **${first}** vs **${second}** — which roll is higher? Type **left**, **right**, or **draw**.`,
+      answers: new Set([first > second ? "left" : first < second ? "right" : "draw"]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "word-backwards") {
+    const word = randomItem(["planet", "garden", "silver", "puzzle", "rocket", "window"]);
+    return {
+      prompt: `Type this word backwards: **${[...word].reverse().join("")}**`,
+      answers: new Set([normalize(word)]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "word-scramble") {
+    const word = randomItem(["planet", "garden", "silver", "puzzle", "rocket", "window", "lantern", "diamond"]);
+    return {
+      prompt: `Unscramble this word: **${scrambleWord(word)}**`,
+      answers: new Set([normalize(word)]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "word") {
+    const question = randomItem(LETTER_QUESTIONS);
+    return {
+      prompt: `**LETTER: ${question.letter}** · **THEME: ${question.theme.toUpperCase()}**\nName one thing in this theme that starts with **${question.letter}**.`,
+      answers: new Set(question.answers.map(normalize)),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "guess-the-landmark") {
+    const question = randomItem([
+      { clue: "I am an iron tower in Paris.", answer: "Eiffel Tower", aliases: ["eiffel"] },
+      { clue: "I am an ancient amphitheatre in Rome.", answer: "Colosseum", aliases: ["coliseum"] },
+      { clue: "I am a giant statue overlooking Rio de Janeiro.", answer: "Christ the Redeemer", aliases: ["christ statue"] },
+      { clue: "I am an ancient Incan city high in the Andes.", answer: "Machu Picchu", aliases: ["machu"] },
+      { clue: "I am a famous white marble mausoleum in Agra.", answer: "Taj Mahal", aliases: ["taj"] },
+      { clue: "I am an ancient stone circle in England.", answer: "Stonehenge" },
+      { clue: "I am an ancient temple complex in Cambodia.", answer: "Angkor Wat", aliases: ["angkor"] },
+    ]);
+    return {
+      prompt: `Guess the landmark: ${question.clue}`,
+      answers: new Set([normalize(question.answer), ...(question.aliases ?? []).map(normalize)]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "button-hunt" || type === "reaction") {
+    const options = type === "button-hunt"
+      ? ["🟦 Blue", "🟥 Red", "🟩 Green", "🟨 Yellow"]
+      : ["Tap 1", "Tap 2", "Tap 3", "Tap 4"];
+    const target = Math.floor(Math.random() * options.length);
+    return {
+      prompt: type === "button-hunt"
+        ? `Find and click the **${options[target]!.slice(3)}** button!`
+        : "Quick! Click the **TAP!** button first!",
+      answers: new Set([String(target)]),
+      answerOptions: type === "button-hunt"
+        ? options
+        : options.map((_, index) => index === target ? "TAP!" : "Wait"),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "red-light-green-light") {
+    return {
+      prompt: "Red light... green light! Click **GO** to move. Don't click **STOP**!",
+      answers: new Set(["0"]),
+      answerOptions: ["GO", "STOP", "STOP", "STOP"],
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "hilo") {
+    const first = Math.floor(Math.random() * 10) + 1;
+    const next = Math.floor(Math.random() * 10) + 1;
+    const correct = next > first ? "Higher" : next < first ? "Lower" : "Same";
+    const answerOptions = ["Higher", "Lower", "Same"];
+    return {
+      prompt: `HILO! The first card is **${first}**. Will the next number be higher, lower, or the same?`,
+      answers: new Set([String(answerOptions.indexOf(correct))]),
+      answerOptions,
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "missing-emoji") {
+    const sequence = randomItem([
+      ["🐶", "🐱", "🐹", "🐰"],
+      ["🍎", "🍌", "🍇", "🍓"],
+      ["🚗", "🚕", "🚌", "🚎"],
+      ["🌙", "⭐", "☀️", "🌈"],
+    ]);
+    const missingIndex = Math.floor(Math.random() * sequence.length);
+    const answer = sequence[missingIndex]!;
+    const shown = sequence.map((emoji, index) => index === missingIndex ? "❔" : emoji);
+    return {
+      prompt: `Which emoji is missing? **${shown.join(" ")}**`,
+      answers: new Set([normalize(answer)]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "sequence-hunt") {
+    const emojis = ["🔴", "🔵"];
+    return {
+      prompt: `What comes next? **${emojis[0]} ${emojis[1]} ${emojis[0]} ${emojis[1]} ?**`,
+      answers: new Set([normalize(emojis[0])]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "color-hunt") {
+    const colors = [
+      { name: "red", emoji: "🟥" },
+      { name: "blue", emoji: "🟦" },
+      { name: "green", emoji: "🟩" },
+      { name: "yellow", emoji: "🟨" },
+      { name: "purple", emoji: "🟪" },
+    ];
+    const color = randomItem(colors);
+    return {
+      prompt: `Name this color: **${color.emoji}**`,
+      answers: new Set([color.name, normalize(color.emoji)]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "flag") {
+    const country = randomItem(FLAG_COUNTRIES);
+    return {
+      prompt: `Name this flag: **${countryFlag(country.code)}**`,
+      answers: new Set([normalize(country.name), ...(country.aliases ?? []).map(normalize)]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "nickname") {
+    const nickname = randomItem(["Shadow", "Starboy", "Dreamer", "Ace", "Blaze", "Moonlight"]);
+    return {
+      prompt: `Unscramble this nickname: **${scrambleWord(nickname)}**`,
+      answers: new Set([normalize(nickname)]),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+
+  if (type === "emoji") {
+    const choices = [
+      { emoji: "🐼", names: ["panda"] },
+      { emoji: "🦋", names: ["butterfly"] },
+      { emoji: "🍍", names: ["pineapple"] },
+      { emoji: "🦉", names: ["owl"] },
+      { emoji: "🐢", names: ["turtle", "tortoise"] },
+    ];
+    const choice = randomItem(choices);
+    return {
+      prompt: `Guess the name of this emoji: **${choice.emoji}**`,
+      answers: new Set(choice.names.map(normalize)),
+      reward: DEFAULT_GAME_REWARD,
+    };
+  }
+  throw new Error(`Unsupported game type: ${type}`);
 }
 
 async function endRound(
@@ -347,7 +562,7 @@ async function endRound(
   }
 
   await awardGameCredits(guildId, winnerId, round.reward);
-  await channel.send(premiumMessagePayload(`${GAME_EMOJIS.reward} <@${winnerId}> solved **${gameLabel(round.type)}** first and won ${GAME_EMOJIS.credits} **${round.reward} credits**!`, channel.client.user));
+  await channel.send(premiumMessagePayload(`${round.rewardTier.icon} <@${winnerId}> solved **${gameLabel(round.type)}** first and won **${round.rewardTier.name} · ${round.reward} credits**!`, channel.client.user));
   return true;
 }
 
@@ -369,18 +584,19 @@ async function startGameRound(
   guildId: string,
   channel: TextChannel,
   type: GameType,
-  reward: number,
 ): Promise<void> {
   if (rounds.has(roundKey(guildId, channel.id))) return;
   const question = createQuestion(type);
+  const { tier: rewardTier, credits } = randomGameReward();
   const round = {
     type,
     channelId: channel.id,
     prompt: question.prompt,
     answers: question.answers,
-    reward,
+    reward: credits,
+    rewardTier,
     imageUrl: question.imageUrl,
-    triviaOptions: question.triviaOptions,
+    answerOptions: question.answerOptions,
     timer: undefined as unknown as NodeJS.Timeout,
   } satisfies Round;
   round.timer = setTimeout(() => {
@@ -390,14 +606,14 @@ async function startGameRound(
 
   const embed = new EmbedBuilder()
     .setColor(premiumColors.brand)
-    .setTitle(`${GAME_EMOJIS[type]} ${gameLabel(type)}`)
-    .setDescription(`${round.prompt}\n\n${GAME_EMOJIS.trophy} First correct answer wins ${GAME_EMOJIS.credits} **${round.reward} credits**.\n${GAME_EMOJIS.time} You have **60 seconds**!`);
+    .setTitle(`${gameEmoji(type)} ${gameLabel(type)}`)
+    .setDescription(`${round.prompt}\n\n${GAME_EMOJIS.trophy} First correct answer wins ${round.rewardTier.icon} **${round.rewardTier.name} · ${round.reward} credits**.\n${GAME_EMOJIS.time} You have **60 seconds**!`);
   if (round.imageUrl) embed.setImage(round.imageUrl);
 
   await channel.send({
     embeds: [embed],
-    ...(round.type === "trivia" && round.triviaOptions
-      ? { components: triviaButtons(guildId, channel.id, round.triviaOptions) }
+    ...(round.answerOptions
+      ? { components: answerButtons(guildId, channel.id, round.answerOptions) }
       : {}),
   });
 }
@@ -405,167 +621,145 @@ async function startGameRound(
 export async function handleCreditGameCommand(message: Message, args: string[]): Promise<void> {
   const guild = message.guild;
   if (!guild) return;
-  const member = message.member ?? await guild.members.fetch(message.author.id).catch(() => null);
-  if (!member?.permissions.has("ManageGuild")) {
-    await message.reply("❌ You need **Manage Server** permission to configure games.");
-    return;
-  }
-
-  const gameType = parseGameType(args[0]);
-  if (!gameType) {
-    await message.reply("Usage: `!games <capital|celebrity|letter|trivia|math|number> <setup|status|interval|reward|pause|resume|remove>`.");
-    return;
-  }
-  const action = args[1]?.toLowerCase() ?? "status";
-  const settings = async () => db.select().from(botGameSettingsTable).where(and(
-    eq(botGameSettingsTable.guildId, guild.id),
-    eq(botGameSettingsTable.gameType, gameType),
-  )).limit(1);
-
-  if (action === "setup" || action === "set") {
-    const channel = message.mentions.channels.first();
-    const intervalArgument = args.find((value) => parseInterval(value) !== null);
-    const rewardArgument = args.find((value) => parseReward(value) !== null && value !== intervalArgument);
-    const intervalMinutes = intervalArgument
-      ? parseInterval(intervalArgument)
-      : (gameType === "math" || gameType === "number" ? 1 : DEFAULT_INTERVAL_MINUTES);
-    const reward = rewardArgument ? parseReward(rewardArgument) : DEFAULT_GAME_REWARD;
-    if (!channel || channel.type !== 0 || intervalMinutes === null || reward === null) {
-      await message.reply(`Usage: \`!games ${gameType} setup #channel [${gameType === "math" || gameType === "number" ? "1m" : "30m"}] [100]\`.`);
-      return;
-    }
-    const now = Date.now();
-    await db.insert(botGameSettingsTable)
-      .values({ guildId: guild.id, gameType, channelId: channel.id, intervalMinutes, reward, enabled: true, nextGameAt: now + intervalMinutes * 60_000 })
-      .onConflictDoUpdate({
-        target: [botGameSettingsTable.guildId, botGameSettingsTable.gameType],
-        set: { channelId: channel.id, intervalMinutes, reward, enabled: true, nextGameAt: now + intervalMinutes * 60_000, updatedAt: new Date(now) },
-      });
-    await message.reply(`<:tick:1563231751432704131> **${gameLabel(gameType)}** enabled in ${channel}, every ${intervalMinutes} minutes, reward **${reward} credits**.`);
-    return;
-  }
-
-  if (action === "status") {
-    const [setting] = await settings();
-    await message.reply(setting
-      ? `${GAME_EMOJIS[gameType]} **${gameLabel(gameType)}**: <#${setting.channelId}>\nInterval: ${setting.intervalMinutes} minutes\nReward: ${setting.reward} credits\nStatus: ${setting.enabled ? "enabled" : "paused"}\nNext game: ${setting.enabled ? `<t:${Math.floor(setting.nextGameAt / 1000)}:R>` : "paused"}`
-      : `🎮 **${gameLabel(gameType)}** is not configured. Use \`!games ${gameType} setup #channel [${gameType === "math" || gameType === "number" ? "1m" : "30m"}] [100]\`.`);
-    return;
-  }
-
-  const [setting] = await settings();
-  if (!setting) {
-    await message.reply(`❌ Configure **${gameLabel(gameType)}** first with \`!games ${gameType} setup #channel [${gameType === "math" || gameType === "number" ? "1m" : "30m"}] [100]\`.`);
+  if (args.length > 0) {
+    await message.reply("Use `!games` to choose a game. Automatic interval-based games have been removed.");
     return;
   }
   const now = Date.now();
-  if (action === "interval") {
-    const intervalMinutes = parseInterval(args.find((value) => parseInterval(value) !== null));
-    if (intervalMinutes === null) {
-      await message.reply(`Usage: \`!games ${gameType} interval 30m\` (allowed: 1m–24h).`);
-      return;
-    }
-    await db.update(botGameSettingsTable).set({ intervalMinutes, nextGameAt: now + intervalMinutes * 60_000, updatedAt: new Date(now) }).where(and(eq(botGameSettingsTable.guildId, guild.id), eq(botGameSettingsTable.gameType, gameType)));
-    await message.reply(`<:tick:1563231751432704131> **${gameLabel(gameType)}** interval set to **${intervalMinutes} minutes**.`);
+  const cooldownExpiresAt = gameDropCooldowns.get(gameDropCooldownKey(guild.id, message.author.id)) ?? 0;
+  if (cooldownExpiresAt > now) {
+    await message.reply(`⏳ You can drop another game <t:${Math.floor(cooldownExpiresAt / 1000)}:R>.`);
     return;
   }
-  if (action === "reward") {
-    const reward = parseReward(args[1]);
-    if (reward === null) {
-      await message.reply(`Usage: \`!games ${gameType} reward <amount>\` (1–${MAX_REWARD.toLocaleString()}).`);
-      return;
-    }
-    await db.update(botGameSettingsTable).set({ reward, updatedAt: new Date(now) }).where(and(eq(botGameSettingsTable.guildId, guild.id), eq(botGameSettingsTable.gameType, gameType)));
-    await message.reply(`<:tick:1563231751432704131> **${gameLabel(gameType)}** reward set to **${reward} credits**.`);
-    return;
-  }
-  if (action === "pause" || action === "resume") {
-    const enabled = action === "resume";
-    await db.update(botGameSettingsTable).set({ enabled, nextGameAt: enabled ? now + setting.intervalMinutes * 60_000 : setting.nextGameAt, updatedAt: new Date(now) }).where(and(eq(botGameSettingsTable.guildId, guild.id), eq(botGameSettingsTable.gameType, gameType)));
-    await message.reply(`<:tick:1563231751432704131> Automatic **${gameLabel(gameType)}** ${enabled ? "resumed" : "paused"}.`);
-    return;
-  }
-  if (action === "remove" || action === "off") {
-    await db.delete(botGameSettingsTable).where(and(eq(botGameSettingsTable.guildId, guild.id), eq(botGameSettingsTable.gameType, gameType)));
-    await message.reply(`<:tick:1563231751432704131> Automatic **${gameLabel(gameType)}** removed.`);
+  if (!(await requireGameChannel(message))) return;
+  const channel = message.channel;
+  if (channel.type !== ChannelType.GuildText) {
+    await message.reply("❌ Game drops can only be started in the configured text channel.");
     return;
   }
 
-  await message.reply(`Usage: \`!games ${gameType} setup #channel [30m] [100]\`, \`interval 30m\`, \`reward 100\`, \`status\`, \`pause\`, \`resume\`, or \`remove\`.`);
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`games:drop:${guild.id}`)
+    .setPlaceholder("Choose a game to drop")
+    .addOptions(GAME_DROP_OPTIONS.map((game) => ({
+      label: game.name,
+      value: game.value,
+      emoji: game.emoji,
+    })));
+  const embed = new EmbedBuilder()
+    .setColor(premiumColors.brand)
+    .setDescription(
+      `<:pin:1569688178816979044> **Lounge:** <#${channel.id}>\n` +
+      "<:hourglass:1569688183070007328> **Cooldown:** **`15 minutes`**\n\n" +
+      "<:controller:1569688185750032415> **Choose a game to drop**\n" +
+      GAME_DROP_OPTIONS.map((game, index) =>
+        `${index === GAME_DROP_OPTIONS.length - 1 ? "<:reply:1569688459973500929>" : "<:replyc:1569688189864771685>"} ${gameEmojiMarkup(game.emoji)} ${game.name}`
+      ).join("\n"),
+    );
+  await message.reply({
+    embeds: [embed],
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+  });
 }
 
-export function startGamesScheduler(client: import("discord.js").Client): void {
-  if (scheduler) return;
-  const run = async () => {
-    if (schedulerRunning) return;
-    schedulerRunning = true;
-    try {
-      const now = Date.now();
-      const settings = await db.select().from(botGameSettingsTable).where(and(eq(botGameSettingsTable.enabled, true)));
-      for (const setting of settings) {
-        if (setting.nextGameAt > now || rounds.has(roundKey(setting.guildId, setting.channelId))) continue;
-        const [reserved] = await db.update(botGameSettingsTable)
-          .set({ nextGameAt: now + setting.intervalMinutes * 60_000, updatedAt: new Date(now) })
-          .where(and(
-            eq(botGameSettingsTable.guildId, setting.guildId),
-            eq(botGameSettingsTable.gameType, setting.gameType),
-            eq(botGameSettingsTable.enabled, true),
-            eq(botGameSettingsTable.nextGameAt, setting.nextGameAt),
-          ))
-          .returning({ guildId: botGameSettingsTable.guildId });
-        if (!reserved) continue;
-        const channel = await client.channels.fetch(setting.channelId).catch(() => null);
-        const gameType = parseGameType(setting.gameType);
-        if (gameType && channel?.type === 0 && channel.isSendable()) {
-          await startGameRound(setting.guildId, channel as TextChannel, gameType, setting.reward).catch((error) => {
-            console.error("Could not start scheduled game", error);
-          });
-        }
-      }
-    } finally {
-      schedulerRunning = false;
+export async function handleGameDropInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
+  const [prefix, action, guildId] = interaction.customId.split(":");
+  if (prefix !== "games" || action !== "drop" || interaction.guildId !== guildId || !guildId) return;
+
+  const game = GAME_DROP_OPTIONS.find((option) => option.value === interaction.values[0]);
+  if (!game) {
+    await interaction.reply({ content: "That game option is no longer available.", ephemeral: true });
+    return;
+  }
+
+  const now = Date.now();
+  const cooldownKey = gameDropCooldownKey(guildId, interaction.user.id);
+  const cooldownExpiresAt = gameDropCooldowns.get(cooldownKey) ?? 0;
+  if (cooldownExpiresAt > now) {
+    await interaction.reply({
+      content: `⏳ You can drop another game <t:${Math.floor(cooldownExpiresAt / 1000)}:R>.`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const channel = interaction.channel;
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    await interaction.reply({ content: "❌ Game drops can only be started in a server text channel.", ephemeral: true });
+    return;
+  }
+
+  const cooldownEndsAt = now + GAME_DROP_COOLDOWN_MS;
+  gameDropCooldowns.set(cooldownKey, cooldownEndsAt);
+  const gameEmoji = gameEmojiMarkup(game.emoji);
+  try {
+    await interaction.deferUpdate();
+    await interaction.message.edit({ components: [] });
+    const startsAt = now + GAME_START_DELAY_MS;
+    const embed = new EmbedBuilder()
+      .setColor(premiumColors.brand)
+      .setAuthor({ name: "A Mysterious Crate Is Approaching!" })
+      .setDescription(
+        `<:pin:1569688178816979044> **Channel:** <#${channel.id}>\n` +
+        `<:GrayUser:1569688203038953573> **Dropped By:** <@${interaction.user.id}>\n` +
+        `<:controller:1569688185750032415> **Game:** ${gameEmoji} ${game.name}\n` +
+        `<:hourglass:1569688183070007328> **Starts:** <t:${Math.floor(startsAt / 1000)}:R>`,
+      );
+    await channel.send({ embeds: [embed] });
+    setTimeout(() => {
+      void startGameRound(guildId, channel as TextChannel, game.value).catch((error: unknown) => {
+        logger.error({ err: error, guildId, channelId: channel.id, game: game.value }, "Could not start selected mini-game");
+      });
+    }, GAME_START_DELAY_MS);
+  } catch (error) {
+    if (gameDropCooldowns.get(cooldownKey) === cooldownEndsAt) gameDropCooldowns.delete(cooldownKey);
+    logger.error({ err: error, guildId, channelId: channel.id, userId: interaction.user.id }, "Could not announce selected game drop");
+    const response = { content: "❌ Could not announce that game drop. Please try again.", ephemeral: true };
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp(response);
+    } else {
+      await interaction.reply(response);
     }
-  };
-  scheduler = setInterval(() => void run(), 30_000);
-  scheduler.unref();
-  void run();
+  }
 }
 
-export async function handleCreditGameInteraction(interaction: ButtonInteraction): Promise<void> {
-  if (!interaction.customId.startsWith("games:trivia:")) return;
+export async function handleGameAnswerInteraction(interaction: ButtonInteraction): Promise<void> {
+  if (!interaction.customId.startsWith("games:answer:")) return;
   const [, , guildId, channelId, rawIndex] = interaction.customId.split(":");
   const round = interaction.guildId && interaction.channelId
     ? rounds.get(roundKey(interaction.guildId, interaction.channelId))
     : undefined;
   const optionIndex = Number(rawIndex);
-  if (!round || round.type !== "trivia" || interaction.guildId !== guildId || interaction.channelId !== channelId || !round.triviaOptions || !Number.isInteger(optionIndex)) {
-    await interaction.reply({ content: "This trivia round has already ended.", ephemeral: true });
+  if (!round || interaction.guildId !== guildId || interaction.channelId !== channelId || !round.answerOptions || !Number.isInteger(optionIndex)) {
+    await interaction.reply({ content: "This game round has already ended.", ephemeral: true });
     return;
   }
 
-  const selected = round.triviaOptions[optionIndex];
+  const selected = round.answerOptions[optionIndex];
   if (!selected) {
-    await interaction.reply({ content: "That answer option is no longer available.", ephemeral: true });
+    await interaction.reply({ content: "That game option is no longer available.", ephemeral: true });
     return;
   }
 
   const channel = interaction.channel;
   if (!channel || channel.type !== ChannelType.GuildText) return;
-  if (!round.answers.has(normalize(selected))) {
+  if (!round.answers.has(String(optionIndex))) {
     await interaction.reply({ content: `${GAME_EMOJIS.time} Wrong answer. Try again!`, ephemeral: true });
     return;
   }
 
   // Only the first correct answer wins; claimRound ends the round atomically.
   if (!claimRound(guildId, channelId, round)) {
-    await interaction.reply({ content: "Someone already answered this trivia question correctly.", ephemeral: true });
+    await interaction.reply({ content: "Someone already answered this game correctly.", ephemeral: true });
     return;
   }
-  await interaction.reply({ content: `${GAME_EMOJIS.reward} Correct! You won ${GAME_EMOJIS.credits} **${round.reward} credits**!`, ephemeral: true });
-  await interaction.message.edit({ components: triviaButtons(guildId, channelId, round.triviaOptions, true) }).catch(() => {});
+  await interaction.reply({ content: `${round.rewardTier.icon} Correct! You won **${round.rewardTier.name} · ${round.reward} credits**!`, ephemeral: true });
+  await interaction.message.edit({ components: answerButtons(guildId, channelId, round.answerOptions, true) }).catch((error: unknown) => {
+    logger.warn({ err: error, guildId, channelId, messageId: interaction.message.id }, "Could not disable game answer buttons");
+  });
   await reactToCorrectAnswer(interaction.message, guildId, channelId);
   await awardGameCredits(guildId, interaction.user.id, round.reward);
-  await channel.send(premiumMessagePayload(`${GAME_EMOJIS.reward} <@${interaction.user.id}> selected the correct answer and won ${GAME_EMOJIS.credits} **${round.reward} credits**!`, channel.client.user));
+  await channel.send(premiumMessagePayload(`${round.rewardTier.icon} <@${interaction.user.id}> selected the correct answer and won **${round.rewardTier.name} · ${round.reward} credits**!`, channel.client.user));
 }
 
 export async function handleCreditGameAnswer(message: Message): Promise<void> {

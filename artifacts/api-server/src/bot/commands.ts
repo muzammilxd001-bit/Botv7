@@ -49,6 +49,7 @@ import { handleSocialRoleCommand } from "./socialRole";
 import { handleModerationRoleCommand } from "./moderationRole";
 import { handleModerationLimitCommand } from "./moderationLimits";
 import { handleSetGameCommand } from "./gameChannel";
+import { handleSetCommandChannelCommand, requireCommandChannel } from "./commandChannel";
 import { handleQuoteRoleCommand, handleSetQuoteCommand } from "./quoteChannel";
 import { handleCreditCommand, handleCreditLeaderboardCommand, handleCreditTransferCommand, handleRoleShopCommand } from "./roleShop";
 import { awardChatCredits, handleActiveChatRewardChannelCommand, handleDailyCommand } from "./credits";
@@ -94,6 +95,12 @@ export async function handleMessage(
 
   if (!options.skipAutoModeration && await handleAutoModeration(message)) return;
 
+  if (
+    content.startsWith("!") &&
+    !/^!setcommandchannel(?:\s|$)/i.test(content) &&
+    !(await requireCommandChannel(message))
+  ) return;
+
   if (!content.startsWith("!")) {
     void awardChatCredits(message);
   }
@@ -126,6 +133,10 @@ export async function handleMessage(
   }
   if (lower === "!setgambling" || lower.startsWith("!setgambling ")) {
     await handleSetGamblingCommand(message, content.split(/\s+/).slice(1));
+    return;
+  }
+  if (lower === "!setcommandchannel" || lower.startsWith("!setcommandchannel ")) {
+    await handleSetCommandChannelCommand(message, content.split(/\s+/).slice(1));
     return;
   }
   if (lower === "!embed" || lower.startsWith("!embed ")) {

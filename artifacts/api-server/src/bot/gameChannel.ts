@@ -1,30 +1,33 @@
 import { ChannelType, PermissionFlagsBits, type Message, type TextChannel } from "discord.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, like, or } from "drizzle-orm";
 import { botGameSettingsTable, db } from "@workspace/db";
 import { logger } from "../lib/logger";
 
 const CONFIG_CACHE_MS = 15_000;
 const LEGACY_GAME_TYPE = "legacy";
-const gameChannelCache = new Map<string, { expiresAt: number; channelId: string | null }>();
+const LEGACY_GAME_TYPE_PREFIX = "legacy-";
+const gameChannelCache = new Map<string, { expiresAt: number; channelIds: string[] }>();
 
-async function getGameChannelId(guildId: string): Promise<string | null | undefined> {
+async function getGameChannelIds(guildId: string): Promise<string[] | undefined> {
   const cached = gameChannelCache.get(guildId);
-  if (cached && cached.expiresAt > Date.now()) return cached.channelId;
+  if (cached && cached.expiresAt > Date.now()) return cached.channelIds;
 
   try {
-    const [settings] = await db
+    const settings = await db
       .select({ channelId: botGameSettingsTable.channelId })
       .from(botGameSettingsTable)
       .where(and(
         eq(botGameSettingsTable.guildId, guildId),
-        eq(botGameSettingsTable.gameType, LEGACY_GAME_TYPE),
-      ))
-      .limit(1);
-    const channelId = settings?.channelId ?? null;
-    gameChannelCache.set(guildId, { expiresAt: Date.now() + CONFIG_CACHE_MS, channelId });
-    return channelId;
+        or(
+          eq(botGameSettingsTable.gameType, LEGACY_GAME_TYPE),
+          like(botGameSettingsTable.gameType, `${LEGACY_GAME_TYPE_PREFIX}%`),
+        ),
+      ));
+    const channelIds = [...new Set(settings.map((setting) => setting.channelId))];
+    gameChannelCache.set(guildId, { expiresAt: Date.now() + CONFIG_CACHE_MS, channelIds });
+    return channelIds;
   } catch (err) {
-    logger.error({ err, guildId }, "Failed to load game channel setting");
+    logger.error({ err, guildId }, "Failed to load game channel settings");
     return undefined;
   }
 }
@@ -33,17 +36,17 @@ export async function requireGameChannel(message: Message): Promise<boolean> {
   const guild = message.guild;
   if (!guild) return false;
 
-  const channelId = await getGameChannelId(guild.id);
-  if (channelId === undefined) {
+  const channelIds = await getGameChannelIds(guild.id);
+  if (channelIds === undefined) {
     await message.reply("❌ Could not verify the game channel. Please try again shortly.");
     return false;
   }
-  if (!channelId) {
-    await message.reply("❌ Games are not configured. A server admin can set the channel with `!setgame #channel`.");
+  if (channelIds.length === 0) {
+    await message.reply("❌ Games are not configured. A server admin can add channels with `!setgame #channel`.");
     return false;
   }
-  if (message.channel.id !== channelId) {
-    await message.reply(`❌ Games can only be played in <#${channelId}>.`);
+  if (!channelIds.includes(message.channel.id)) {
+    await message.reply(`❌ Games can only be played in ${channelIds.map((channelId) => `<#${channelId}>`).join(", ")}.`);
     return false;
   }
   return true;
@@ -61,16 +64,38 @@ export async function handleSetGameCommand(message: Message, args: string[]): Pr
 
   const action = args[0]?.toLowerCase();
   if (action === "remove" || action === "clear" || action === "off") {
+    const mentionedChannel = message.mentions.channels.first();
+    const channelId = mentionedChannel?.id ?? /^<?#?(\d{17,20})>?$/.exec(args[1] ?? "")?.[1];
     try {
-      await db.delete(botGameSettingsTable).where(and(
-        eq(botGameSettingsTable.guildId, guild.id),
-        eq(botGameSettingsTable.gameType, LEGACY_GAME_TYPE),
-      ));
-      gameChannelCache.set(guild.id, { expiresAt: Date.now() + CONFIG_CACHE_MS, channelId: null });
-      await message.reply("✅ The game channel was cleared. Games are now disabled until another channel is set.");
+      if (channelId) {
+        await db.delete(botGameSettingsTable).where(and(
+          eq(botGameSettingsTable.guildId, guild.id),
+          eq(botGameSettingsTable.channelId, channelId),
+          or(
+            eq(botGameSettingsTable.gameType, LEGACY_GAME_TYPE),
+            eq(botGameSettingsTable.gameType, `${LEGACY_GAME_TYPE_PREFIX}${channelId}`),
+          ),
+        ));
+        gameChannelCache.delete(guild.id);
+        const channelIds = await getGameChannelIds(guild.id);
+        if (channelIds) {
+          gameChannelCache.set(guild.id, { expiresAt: Date.now() + CONFIG_CACHE_MS, channelIds });
+        }
+        await message.reply(`✅ Removed <#${channelId}> from the game channels.`);
+      } else {
+        await db.delete(botGameSettingsTable).where(and(
+          eq(botGameSettingsTable.guildId, guild.id),
+          or(
+            eq(botGameSettingsTable.gameType, LEGACY_GAME_TYPE),
+            like(botGameSettingsTable.gameType, `${LEGACY_GAME_TYPE_PREFIX}%`),
+          ),
+        ));
+        gameChannelCache.set(guild.id, { expiresAt: Date.now() + CONFIG_CACHE_MS, channelIds: [] });
+        await message.reply("✅ All game channels were cleared. Add one with `!setgame #channel`.");
+      }
     } catch (err) {
-      logger.error({ err, guildId: guild.id }, "Failed to remove game channel setting");
-      await message.reply("❌ Could not clear the game channel. Please try again.");
+      logger.error({ err, guildId: guild.id, channelId }, "Failed to remove game channel setting");
+      await message.reply("❌ Could not remove the game channel setting. Please try again.");
     }
     return;
   }
@@ -78,16 +103,16 @@ export async function handleSetGameCommand(message: Message, args: string[]): Pr
   const mentionedChannel = message.mentions.channels.first();
   const channelId = mentionedChannel?.id ?? /^<?#?(\d{17,20})>?$/.exec(args[0] ?? "")?.[1];
   if (!channelId) {
-    const configuredChannel = await getGameChannelId(guild.id);
+    const configuredChannelIds = await getGameChannelIds(guild.id);
     if (action === "status" || !args[0]) {
-      await message.reply(configuredChannel === undefined
-        ? "❌ Could not load the game channel setting."
-        : configuredChannel
-          ? `🎮 Games are restricted to <#${configuredChannel}>.`
-          : "🎮 No game channel is set. Use `!setgame #channel`.");
+      await message.reply(configuredChannelIds === undefined
+        ? "❌ Could not load the game channel settings."
+        : configuredChannelIds.length > 0
+          ? `🎮 Game channels:\n${configuredChannelIds.map((id) => `• <#${id}>`).join("\n")}`
+          : "🎮 No game channels are set. Use `!setgame #channel` to add one.");
       return;
     }
-    await message.reply("Usage: `!setgame #channel`, `!setgame status`, or `!setgame remove`.");
+    await message.reply("Usage: `!setgame #channel` (repeat to add channels), `!setgame status`, `!setgame remove #channel`, or `!setgame remove` to clear all.");
     return;
   }
 
@@ -98,14 +123,19 @@ export async function handleSetGameCommand(message: Message, args: string[]): Pr
   }
 
   try {
+    const gameType = `${LEGACY_GAME_TYPE_PREFIX}${channel.id}`;
     await db.insert(botGameSettingsTable)
-      .values({ guildId: guild.id, gameType: LEGACY_GAME_TYPE, channelId: channel.id })
+      .values({ guildId: guild.id, gameType, channelId: channel.id })
       .onConflictDoUpdate({
         target: [botGameSettingsTable.guildId, botGameSettingsTable.gameType],
         set: { channelId: channel.id, updatedAt: new Date() },
       });
-    gameChannelCache.set(guild.id, { expiresAt: Date.now() + CONFIG_CACHE_MS, channelId: channel.id });
-    await message.reply(`✅ Word Bomb and credit games are now restricted to ${channel as TextChannel}.`);
+    gameChannelCache.delete(guild.id);
+    const channelIds = await getGameChannelIds(guild.id);
+    if (channelIds) {
+      gameChannelCache.set(guild.id, { expiresAt: Date.now() + CONFIG_CACHE_MS, channelIds });
+    }
+    await message.reply(`✅ ${channel as TextChannel} added to game channels. Use \`!setgame status\` to see all configured channels.`);
   } catch (err) {
     logger.error({ err, guildId: guild.id, channelId }, "Failed to set game channel");
     await message.reply("❌ Could not save the game channel. Please try again.");

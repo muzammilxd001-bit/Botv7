@@ -16,6 +16,7 @@ import { SOCIAL_ACTION_NAMES } from "./social";
 import { bumpStickyForChannel } from "./automation";
 import { premiumEmbed } from "./presentation";
 import { VC_HELP_TEXT } from "./joinToCreate";
+import { requireCommandChannelForInteraction } from "./commandChannel";
 
 const slashCommands = [
   new SlashCommandBuilder()
@@ -283,12 +284,15 @@ const slashCommands = [
     .setDescription("Start a Word Bomb game in the configured games channel."),
   new SlashCommandBuilder()
     .setName("games")
-    .setDescription("Configure automatic credit-reward games.")
-    .addStringOption((option) => option.setName("args").setDescription("setup #channel 30m 100, status, interval, reward, pause, resume, or remove")),
+    .setDescription("Choose a game to drop in the configured game channel."),
   new SlashCommandBuilder()
     .setName("setgame")
-    .setDescription("Choose the channel where server games can be played.")
+    .setDescription("Add a channel where server games can be played.")
     .addChannelOption((o) => o.setName("channel").setDescription("Games text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("setcommandchannel")
+    .setDescription("Set the channel where bot commands are allowed.")
+    .addChannelOption((o) => o.setName("channel").setDescription("Bot commands text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder()
     .setName("setchatreward")
     .setDescription("Choose where active chat rewards are announced.")
@@ -674,6 +678,10 @@ function buildLegacyContent(interaction: ChatInputCommandInteraction): string {
       const channel = interaction.options.getChannel("channel");
       return channel ? `!setgame <#${channel.id}>` : "!setgame status";
     }
+    case "setcommandchannel": {
+      const channel = interaction.options.getChannel("channel");
+      return channel ? `!setcommandchannel <#${channel.id}>` : "!setcommandchannel status";
+    }
     case "setchatreward": {
       const channel = interaction.options.getChannel("channel");
       return channel ? `!setchatreward <#${channel.id}>` : "!setchatreward status";
@@ -683,7 +691,7 @@ function buildLegacyContent(interaction: ChatInputCommandInteraction): string {
       return channel ? `!setgambling <#${channel.id}>` : "!setgambling status";
     }
     case "games":
-      return `!games ${string("args")}`.trim();
+      return "!games";
     case "voice":
       return `!voice ${interaction.options.getSubcommand(false) ?? "help"}`;
     case "ship":
@@ -904,6 +912,7 @@ export async function handleSlashCommand(client: Client, interaction: ChatInputC
 
   try {
     if (interaction.commandName === "help") {
+      if (!(await requireCommandChannelForInteraction(interaction))) return;
       await interaction.reply({
         content: "For private command instructions, send `!help` or `!help games` to me in a direct message.",
         ephemeral: true,
@@ -912,6 +921,7 @@ export async function handleSlashCommand(client: Client, interaction: ChatInputC
     }
 
     if (interaction.commandName === "voice") {
+      if (!(await requireCommandChannelForInteraction(interaction))) return;
       await interaction.reply({ content: VC_HELP_TEXT, ephemeral: true });
       return;
     }
