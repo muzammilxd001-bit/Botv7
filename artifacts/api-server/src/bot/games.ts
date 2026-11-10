@@ -228,8 +228,8 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
 const rounds = new Map<string, Round>();
 const gameDropCooldowns = new Map<string, number>();
 
-function gameDropCooldownKey(guildId: string, userId: string): string {
-  return `${guildId}:${userId}`;
+function gameDropCooldownKey(guildId: string): string {
+  return guildId;
 }
 
 function normalize(value: string): string {
@@ -635,7 +635,7 @@ export async function handleCreditGameCommand(message: Message, args: string[]):
     return;
   }
   const now = Date.now();
-  const cooldownExpiresAt = gameDropCooldowns.get(gameDropCooldownKey(guild.id, message.author.id)) ?? 0;
+  const cooldownExpiresAt = gameDropCooldowns.get(gameDropCooldownKey(guild.id)) ?? 0;
   if (cooldownExpiresAt > now) {
     await message.reply(`⏳ You can drop another game <t:${Math.floor(cooldownExpiresAt / 1000)}:R>.`);
     return;
@@ -682,7 +682,7 @@ export async function handleGameDropInteraction(interaction: StringSelectMenuInt
   }
 
   const now = Date.now();
-  const cooldownKey = gameDropCooldownKey(guildId, interaction.user.id);
+  const cooldownKey = gameDropCooldownKey(guildId);
   const cooldownExpiresAt = gameDropCooldowns.get(cooldownKey) ?? 0;
   if (cooldownExpiresAt > now) {
     await interaction.reply({
