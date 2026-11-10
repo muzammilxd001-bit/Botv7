@@ -774,7 +774,7 @@ export async function handleGameAnswerInteraction(interaction: ButtonInteraction
 export async function handleCreditGameAnswer(message: Message): Promise<void> {
   if (!message.guild || message.author.bot || message.content.trim().startsWith("!")) return;
   const round = rounds.get(roundKey(message.guild.id, message.channel.id));
-  if (!round || round.channelId !== message.channel.id) return;
+  if (!round || round.channelId !== message.channel.id || round.type === "nickname") return;
   if (!round.answers.has(normalize(message.content))) return;
   await endRound(message.guild.id, message.channel as TextChannel, round, message.author.id, message);
 }
