@@ -106,6 +106,7 @@ test("credit-drop winner embed displays that user's personal claim count", async
     setTimestamp() { return this; }
   }
   const module = loadTypeScriptModule("./src/bot/crates.ts", {
+    "./guildPolicy": { ACTIVE_BOT_GUILD_ID: "545423389607591946" },
     "@workspace/db": { botCrateSettingsTable: settingsTable, botMiningProfilesTable: profileTable, db: database },
     "drizzle-orm": {
       and: (...conditions) => conditions,

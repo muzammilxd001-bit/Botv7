@@ -14,13 +14,14 @@ import {
   db,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { ACTIVE_BOT_GUILD_ID } from "./guildPolicy";
 
 const DEFAULT_INTERVAL_MINUTES = 30;
 const MIN_INTERVAL_MINUTES = 0;
 const MAX_INTERVAL_MINUTES = 24 * 60;
 const CRATE_LIFETIME_MS = 10 * 60_000;
 const SCHEDULER_INTERVAL_MS = 30_000;
-const DROP_REACTIONS = ["🌦️", "🎁", "🍀", "💎", "⭐", "🪙", "🎈", "🍉"] as const;
+export const DROP_REACTIONS = ["🌦️", "🎁", "🍀", "💎", "⭐", "🪙", "🎈", "🍉"] as const;
 const LEGACY_REACTION = "🌦️";
 export const CREDIT_DROP_TIERS = [
   { name: "Common", icon: "<:common:1558505660470010070>", min: 100, max: 200, weight: 70, color: 0x95a5a6 },
@@ -325,7 +326,10 @@ async function runScheduler(client: Client): Promise<void> {
     const settingsList = await db
       .select()
       .from(botCrateSettingsTable)
-      .where(eq(botCrateSettingsTable.enabled, true));
+      .where(and(
+        eq(botCrateSettingsTable.enabled, true),
+        eq(botCrateSettingsTable.guildId, ACTIVE_BOT_GUILD_ID),
+      ));
     const now = Date.now();
     for (const settings of settingsList) {
       if (settings.activeMessageId && (settings.activeExpiresAt ?? 0) <= now) {

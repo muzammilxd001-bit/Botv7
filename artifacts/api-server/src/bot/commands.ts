@@ -49,10 +49,13 @@ import { handleSocialRoleCommand } from "./socialRole";
 import { handleModerationRoleCommand } from "./moderationRole";
 import { handleModerationLimitCommand } from "./moderationLimits";
 import { handleSetGameCommand } from "./gameChannel";
+import { handleCreditDropCommand } from "./crates";
+import { handleFlagDropCommand } from "./flagDrop";
 import { handleQuoteRoleCommand, handleSetQuoteCommand } from "./quoteChannel";
 import { handleCreditCommand, handleCreditLeaderboardCommand, handleCreditTransferCommand, handleRoleShopCommand } from "./roleShop";
 import { awardChatCredits, handleActiveChatRewardChannelCommand, handleDailyCommand } from "./credits";
 import { handleCreditGameAnswer, handleCreditGameCommand } from "./games";
+import { handleFlagDropAnswer } from "./flagDrop";
 import { handleEmbedCommand } from "./embeds";
 import { handleStatusRoleCommand } from "./statusRole";
 import { handleGuildTagRoleCommand } from "./guildTagRole";
@@ -63,6 +66,8 @@ import { handleSetGamblingCommand } from "./gamblingChannel";
 import { handleCoinflipCommand, handleGambleCommand, logGamblingError } from "./gambling";
 import { handleMinesCommand, minesNoticeEmbed } from "./mines";
 import { logger } from "../lib/logger";
+import { isActiveBotGuild } from "./guildPolicy";
+import { handleSetCommandBlacklistChannel, shouldIgnoreCommands } from "./commandBlacklist";
 
 const PREFIX = "!";
 
@@ -82,14 +87,22 @@ export async function handleMessage(
     }
     return;
   }
+  if (!isActiveBotGuild(incomingMessage.guild.id)) return;
 
   if (!raw.startsWith("!")) {
+    await handleFlagDropAnswer(message);
     await handleCreditGameAnswer(message);
   }
 
   const noPrefix = hasNoPrefix(message);
   const content = (!raw.startsWith("!") && noPrefix) ? `!${raw}` : raw;
+  const lower = content.toLowerCase();
 
+  if (lower === "!setblacklistchannel" || lower.startsWith("!setblacklistchannel ")) {
+    await handleSetCommandBlacklistChannel(message, content.split(/\s+/).slice(1));
+    return;
+  }
+  if (content.startsWith("!") && await shouldIgnoreCommands(incomingMessage.guild.id, incomingMessage.channel.id)) return;
   if (!options.skipAutoModeration && await handleAutoModeration(message)) return;
 
   if (!content.startsWith("!")) {
@@ -99,8 +112,6 @@ export async function handleMessage(
   await handleAfk(message, content);
 
   if (!content.startsWith("!") && !noPrefix) return;
-
-  const lower = content.toLowerCase();
 
   if (lower === "!setchatreward" || lower.startsWith("!setchatreward ")) {
     await handleActiveChatRewardChannelCommand(message, content.split(/\s+/).slice(1));
@@ -271,6 +282,10 @@ export async function handleMessage(
     await handleSetWbChannelCommand(message, content.split(/\s+/).slice(1));
   } else if (lower === "!setgame" || lower.startsWith("!setgame ")) {
     await handleSetGameCommand(message, content.split(/\s+/).slice(1));
+  } else if (lower === "!creditdrop" || lower.startsWith("!creditdrop ")) {
+    await handleCreditDropCommand(message);
+  } else if (lower === "!flagdrop" || lower.startsWith("!flagdrop ")) {
+    await handleFlagDropCommand(message);
   } else if (lower === "!wordbomb" || lower === "!wb") {
     await handleWordbomb(client, message);
   } else if (lower === "!wbstop" || lower === "!wordbomb stop") {

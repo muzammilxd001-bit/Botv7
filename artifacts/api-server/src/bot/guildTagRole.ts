@@ -10,6 +10,7 @@ import {
 import { eq } from "drizzle-orm";
 import { botGuildTagRolesTable, db } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { isActiveBotGuild } from "./guildPolicy";
 
 const DEFAULT_LOG_TITLE = "Guild Tag Role {{action}}";
 const DEFAULT_LOG_DESCRIPTION =
@@ -190,6 +191,7 @@ export async function handleGuildTagRoleUserUpdate(
       .filter((id): id is string => Boolean(id)),
   );
   for (const guildId of guildIds) {
+    if (!isActiveBotGuild(guildId)) continue;
     const guild = client.guilds.cache.get(guildId);
     if (!guild) continue;
 

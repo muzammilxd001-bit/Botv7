@@ -2,6 +2,7 @@ import { and, eq, lte } from "drizzle-orm";
 import { ChannelType, EmbedBuilder, PermissionFlagsBits, type Client, type Message } from "discord.js";
 import { botBumpSettingsTable, botScheduledMessagesTable, db } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { ACTIVE_BOT_GUILD_ID } from "./guildPolicy";
 
 const MAX_DURATION_MS = 7 * 24 * 60 * 60_000;
 const MAX_ACTIVE_PER_USER = 10;
@@ -205,7 +206,10 @@ async function deliverDueMessages(client: Client): Promise<void> {
   try {
     const dueMessages = await db.select()
       .from(botScheduledMessagesTable)
-      .where(lte(botScheduledMessagesTable.dueAt, new Date()))
+      .where(and(
+        lte(botScheduledMessagesTable.dueAt, new Date()),
+        eq(botScheduledMessagesTable.guildId, ACTIVE_BOT_GUILD_ID),
+      ))
       .limit(100);
 
     for (const scheduled of dueMessages) {

@@ -665,10 +665,19 @@ export async function handleCreditGameCommand(message: Message, args: string[]):
         `${index === GAME_DROP_OPTIONS.length - 1 ? "<:reply:1569688459973500929>" : "<:replyc:1569688189864771685>"} ${gameEmojiMarkup(game.emoji)} ${game.name}`
       ).join("\n"),
     );
-  await message.reply({
+  const pickerMessage = await message.reply({
     embeds: [embed],
     components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
   });
+  const pickerExpiry = setTimeout(() => {
+    void pickerMessage.delete().catch((error: unknown) => {
+      logger.warn(
+        { err: error, guildId: guild.id, channelId: channel.id, messageId: pickerMessage.id },
+        "Could not delete expired game picker",
+      );
+    });
+  }, 30_000);
+  pickerExpiry.unref();
 }
 
 export async function handleGameDropInteraction(interaction: StringSelectMenuInteraction): Promise<void> {

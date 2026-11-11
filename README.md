@@ -35,4 +35,10 @@ The bot service must remain running continuously because Discord bots require a 
 
 Members earn 20 credits from chat once per minute. Use `!credit` to check the server balance.
 
+## Scheduled drops
+
+Server managers can configure recurring credit reaction drops with `!creditdrop setup #channel [30m]` and flag-answer drops with `!flagdrop setup #channel [15m]`. Configure multiple channels by repeating setup. Use each command's `interval`, `status`, `pause`, `resume`, and `remove` actions to manage drops. Configure multiple active chat reward announcement channels by repeating `!setchatreward #channel`; use `!setchatreward status` to view them, `!setchatreward remove #channel` to remove one, or `!setchatreward remove` to clear all. These scheduled drops are separate from the on-demand `!games` mini-game picker.
+
+Server managers can silence prefix commands in one text channel with `!setblacklistchannel #channel`. In that channel, bot commands (including `!help`) are ignored; use `!setblacklistchannel status` to view the setting or `!setblacklistchannel remove` to clear it.
+
 Server managers can create reusable custom embeds with `!embed new <name>`, set content with `!embed edit <name> <title|author|description|color|image|thumbnail|footer> <value>`, add fields with `!embed field <name> add <field name>|<value>|[inline]`, preview with `!embed show <name>`, and send with `!embed send <name> #channel`. Use `!embed list` to see saved embeds; `!embed clear <name> <field>` clears one setting. Hex colors must use `#RRGGBB`; image and thumbnail values must be HTTP(S) URLs. Existing command-response embeds can be customized by command, for example `!embed override ban color #5865F2` or `!embed override ban author Moderation`, then previewed with `!embed override-show ban`. Use `!embed override-clear ban color` to clear one override or `!embed override-reset ban` to restore that command's defaults. `!embed` lists the full syntax.
