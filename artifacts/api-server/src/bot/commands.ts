@@ -7,7 +7,7 @@ import {
 import { handleAfk } from "./afk";
 import { handleWarn, handleWarnings, handleClearWarnings } from "./warn";
 import { handleMute, handleUnmute } from "./mute";
-import { handleWordbomb, handleWordbombStop, handleWbTop } from "./wordbomb";
+import { handleSetWbChannelCommand, handleWordbomb, handleWordbombStop, handleWbTop } from "./wordbomb";
 import { handlePurge, handlePurgeBot } from "./purge";
 import { hasNoPrefix, handleNoPrefix } from "./noprefix";
 import { handleHelp } from "./help";
@@ -278,6 +278,8 @@ export async function handleMessage(
     await handleAnnounce(message);
 
   // ── Fun / Games ───────────────────────────────────────────────────────────
+  } else if (lower === "!setwbchannel" || lower.startsWith("!setwbchannel ")) {
+    await handleSetWbChannelCommand(message, content.split(/\s+/).slice(1));
   } else if (lower === "!setgame" || lower.startsWith("!setgame ")) {
     await handleSetGameCommand(message, content.split(/\s+/).slice(1));
   } else if (lower === "!creditdrop" || lower.startsWith("!creditdrop ")) {
