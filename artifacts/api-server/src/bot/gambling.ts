@@ -53,7 +53,16 @@ export async function handleCoinflipCommand(message: Message, args: string[] = m
   const cooldownUntil = gamblingCooldowns.get(cooldownKey) ?? 0;
   if (cooldownUntil > now) {
     const nickname = message.member?.displayName ?? message.author.displayName;
-    await message.reply(`⏱ | ${nickname}! Slow down and try the command again <t:${Math.ceil(cooldownUntil / 1000)}:R>`);
+    const cooldownMessage = await message.reply(`⏱ | ${nickname}! Slow down and try the command again <t:${Math.ceil(cooldownUntil / 1000)}:R>`);
+    const cooldownMessageExpiry = setTimeout(() => {
+      void cooldownMessage.delete().catch((error: unknown) => {
+        logger.warn(
+          { err: error, guildId: guild.id, channelId: message.channelId, messageId: cooldownMessage.id },
+          "Could not delete expired gambling cooldown message",
+        );
+      });
+    }, GAMBLING_COOLDOWN_MS);
+    cooldownMessageExpiry.unref();
     return;
   }
   gamblingCooldowns.set(cooldownKey, now + GAMBLING_COOLDOWN_MS);
