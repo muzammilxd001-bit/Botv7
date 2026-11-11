@@ -20,6 +20,7 @@ import {
 import { eq } from "drizzle-orm";
 import { db, botJoinToCreateTable, botJtcTempChannelsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { ACTIVE_BOT_GUILD_ID } from "./guildPolicy";
 import { premiumColors } from "./presentation";
 
 interface JtcConfig {
@@ -397,6 +398,7 @@ export function startTempChannelCleanupScheduler(client: Client): void {
   tempChannelCleanupScheduler = setInterval(() => {
     void db.select({ guildId: botJtcTempChannelsTable.guildId, channelId: botJtcTempChannelsTable.channelId })
       .from(botJtcTempChannelsTable)
+      .where(eq(botJtcTempChannelsTable.guildId, ACTIVE_BOT_GUILD_ID))
       .then(async (channels) => {
         for (const tracked of channels) {
           const guild = client.guilds.cache.get(tracked.guildId);
@@ -408,6 +410,7 @@ export function startTempChannelCleanupScheduler(client: Client): void {
   tempChannelCleanupScheduler.unref();
   void db.select({ guildId: botJtcTempChannelsTable.guildId, channelId: botJtcTempChannelsTable.channelId })
     .from(botJtcTempChannelsTable)
+    .where(eq(botJtcTempChannelsTable.guildId, ACTIVE_BOT_GUILD_ID))
     .then(async (channels) => {
       for (const tracked of channels) {
         const guild = client.guilds.cache.get(tracked.guildId);

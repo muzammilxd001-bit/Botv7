@@ -114,6 +114,7 @@ function createAnswerHarness({ answer = "Japan", expiresAt = Date.now() + 60_000
   }
 
   const flagDrop = loadTypeScriptModule("./src/bot/flagDrop.ts", {
+    "./guildPolicy": { ACTIVE_BOT_GUILD_ID: "545423389607591946" },
     "@workspace/db": {
       botFlagDropSettingsTable: settingsTable,
       botMiningProfilesTable: profileTable,

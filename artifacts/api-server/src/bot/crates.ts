@@ -14,6 +14,7 @@ import {
   db,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { ACTIVE_BOT_GUILD_ID } from "./guildPolicy";
 
 const DEFAULT_INTERVAL_MINUTES = 30;
 const MIN_INTERVAL_MINUTES = 0;
@@ -325,7 +326,10 @@ async function runScheduler(client: Client): Promise<void> {
     const settingsList = await db
       .select()
       .from(botCrateSettingsTable)
-      .where(eq(botCrateSettingsTable.enabled, true));
+      .where(and(
+        eq(botCrateSettingsTable.enabled, true),
+        eq(botCrateSettingsTable.guildId, ACTIVE_BOT_GUILD_ID),
+      ));
     const now = Date.now();
     for (const settings of settingsList) {
       if (settings.activeMessageId && (settings.activeExpiresAt ?? 0) <= now) {

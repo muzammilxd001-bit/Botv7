@@ -16,6 +16,7 @@ import { SOCIAL_ACTION_NAMES } from "./social";
 import { bumpStickyForChannel } from "./automation";
 import { premiumEmbed } from "./presentation";
 import { VC_HELP_TEXT } from "./joinToCreate";
+import { isActiveBotGuild } from "./guildPolicy";
 
 const slashCommands = [
   new SlashCommandBuilder()
@@ -835,7 +836,7 @@ async function createMessageAdapter(interaction: ChatInputCommandInteraction, co
 export async function registerSlashCommands(client: Client): Promise<void> {
   for (const guild of client.guilds.cache.values()) {
     try {
-      await guild.commands.set(slashCommands);
+      await guild.commands.set(isActiveBotGuild(guild.id) ? slashCommands : []);
     } catch (err) {
       logger.error({ err, guildId: guild.id }, "Failed to register slash commands");
     }
@@ -863,6 +864,7 @@ export async function handleSlashCommand(client: Client, interaction: ChatInputC
     });
     return;
   }
+  if (!isActiveBotGuild(interaction.guild.id)) return;
 
   try {
     if (interaction.commandName === "help") {

@@ -13,6 +13,7 @@ import {
   db,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { ACTIVE_BOT_GUILD_ID } from "./guildPolicy";
 import { findFlagCountry, FLAG_COUNTRIES, isCorrectFlagCountryAnswer } from "./flagCountries";
 import { CREDIT_DROP_TIERS, chooseCreditDropReward, type CreditDropTier } from "./crates";
 
@@ -287,7 +288,10 @@ async function runFlagDropScheduler(client: Client): Promise<void> {
   schedulerRunning = true;
   try {
     const settingsList = await db.select().from(botFlagDropSettingsTable)
-      .where(eq(botFlagDropSettingsTable.enabled, true));
+      .where(and(
+        eq(botFlagDropSettingsTable.enabled, true),
+        eq(botFlagDropSettingsTable.guildId, ACTIVE_BOT_GUILD_ID),
+      ));
     const now = Date.now();
     for (const setting of settingsList) {
       if (setting.activeMessageId && (setting.activeExpiresAt ?? 0) <= now) {

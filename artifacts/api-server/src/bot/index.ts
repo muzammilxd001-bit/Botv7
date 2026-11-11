@@ -15,6 +15,7 @@ import { giveaways, buildGiveawayEmbed } from "./giveaway";
 import { handleJtcInteraction, handleVoiceStateUpdate, startTempChannelCleanupScheduler } from "./joinToCreate";
 import { handleTicketInteraction } from "./tickets";
 import { logger } from "../lib/logger";
+import { isActiveBotGuild } from "./guildPolicy";
 import { processUserMessageAutomations, sendMemberMessage } from "./automation";
 import { handleGameAnswerInteraction, handleGameDropInteraction, handleNicknameGameMemberUpdate } from "./games";
 import { DROP_REACTIONS, handleCreditDropReaction, startCreditDropScheduler } from "./crates";
@@ -66,6 +67,7 @@ export function createBot(): Client {
   });
 
   client.on("messageCreate", async (message) => {
+    if (message.guildId && !isActiveBotGuild(message.guildId)) return;
     void handleBumpMessage(message).catch((err) => {
       logger.error({ err, guildId: message.guildId }, "Error handling bump message");
     });
@@ -84,18 +86,21 @@ export function createBot(): Client {
   });
 
   client.on("messageDelete", (message) => {
+    if (!isActiveBotGuild(message.guildId)) return;
     void rememberDeletedMessage(message).catch((err) => {
       logger.error({ err, guildId: message.guildId, channelId: message.channelId }, "Could not cache deleted message for snipe");
     });
   });
 
   client.on("guildMemberAdd", (member) => {
+    if (!isActiveBotGuild(member.guild.id)) return;
     void sendMemberMessage(client, member, "welcome").catch((err) => {
       logger.error({ err, guildId: member.guild.id }, "Could not send welcome message");
     });
   });
 
   client.on("guildMemberUpdate", (oldMember, newMember) => {
+    if (!isActiveBotGuild(newMember.guild.id)) return;
     void handleNicknameGameMemberUpdate(oldMember, newMember).catch((err) => {
       logger.error({ err, guildId: newMember.guild.id, userId: newMember.id }, "Error handling nickname game update");
     });
@@ -106,18 +111,21 @@ export function createBot(): Client {
   });
 
   client.on("guildBanAdd", (ban) => {
+    if (!isActiveBotGuild(ban.guild.id)) return;
     void handleEmergencyBanAdd(client, ban).catch((err) => {
       logger.error({ err, guildId: ban.guild.id, userId: ban.user.id }, "Error checking emergency ban threshold");
     });
   });
 
   client.on("guildMemberRemove", (member) => {
+    if (!isActiveBotGuild(member.guild.id)) return;
     void handleEmergencyMemberRemove(client, member).catch((err) => {
       logger.error({ err, guildId: member.guild.id, userId: member.id }, "Error checking emergency kick threshold");
     });
   });
 
   client.on("guildRoleUpdate", (oldRole, newRole) => {
+    if (!isActiveBotGuild(newRole.guild.id)) return;
     void handleEmergencyRoleUpdate(oldRole, newRole).catch((err) => {
       logger.error({ err, guildId: newRole.guild.id, roleId: newRole.id }, "Error saving emergency role permissions");
     });
@@ -125,7 +133,7 @@ export function createBot(): Client {
 
   client.on("presenceUpdate", (oldPresence, newPresence) => {
     const presenceGuild = newPresence.guild;
-    if (!presenceGuild) return;
+    if (!presenceGuild || !isActiveBotGuild(presenceGuild.id)) return;
     void handleStatusRolePresenceUpdate(oldPresence, newPresence).catch((err) => {
       logger.error({ err, guildId: presenceGuild.id, userId: newPresence.userId }, "Error handling status-role presence update");
     });
@@ -138,12 +146,14 @@ export function createBot(): Client {
   });
 
   client.on("voiceStateUpdate", (oldState, newState) => {
+    if (!isActiveBotGuild(newState.guild.id)) return;
     void handleVoiceStateUpdate(client, oldState, newState).catch((err) => {
       logger.error({ err, guildId: newState.guild.id }, "Error handling voice state update");
     });
   });
 
   client.on("interactionCreate", async (interaction) => {
+    if (interaction.guildId && !isActiveBotGuild(interaction.guildId)) return;
     if (
       (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) &&
       interaction.customId.startsWith("embed-ui:")
@@ -207,6 +217,7 @@ export function createBot(): Client {
   client.on("messageReactionAdd", async (reaction: MessageReaction, user: User) => {
     try {
       if (user.bot) return;
+      if (!isActiveBotGuild(reaction.message.guildId)) return;
       if (DROP_REACTIONS.some((dropReaction) => dropReaction === reaction.emoji.name)) {
         await handleCreditDropReaction(reaction, user);
       }
@@ -231,6 +242,7 @@ export function createBot(): Client {
   client.on("messageReactionRemove", async (reaction: MessageReaction, user: User) => {
     try {
       if (user.bot) return;
+      if (!isActiveBotGuild(reaction.message.guildId)) return;
       if (reaction.emoji.name !== "🎉") return;
 
       if (reaction.partial) await reaction.fetch();

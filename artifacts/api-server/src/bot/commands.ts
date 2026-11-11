@@ -66,6 +66,8 @@ import { handleSetGamblingCommand } from "./gamblingChannel";
 import { handleCoinflipCommand, handleGambleCommand, logGamblingError } from "./gambling";
 import { handleMinesCommand, minesNoticeEmbed } from "./mines";
 import { logger } from "../lib/logger";
+import { isActiveBotGuild } from "./guildPolicy";
+import { handleSetCommandBlacklistChannel, shouldIgnoreCommands } from "./commandBlacklist";
 
 const PREFIX = "!";
 
@@ -85,6 +87,7 @@ export async function handleMessage(
     }
     return;
   }
+  if (!isActiveBotGuild(incomingMessage.guild.id)) return;
 
   if (!raw.startsWith("!")) {
     await handleFlagDropAnswer(message);
@@ -93,7 +96,13 @@ export async function handleMessage(
 
   const noPrefix = hasNoPrefix(message);
   const content = (!raw.startsWith("!") && noPrefix) ? `!${raw}` : raw;
+  const lower = content.toLowerCase();
 
+  if (lower === "!setblacklistchannel" || lower.startsWith("!setblacklistchannel ")) {
+    await handleSetCommandBlacklistChannel(message, content.split(/\s+/).slice(1));
+    return;
+  }
+  if (content.startsWith("!") && await shouldIgnoreCommands(incomingMessage.guild.id, incomingMessage.channel.id)) return;
   if (!options.skipAutoModeration && await handleAutoModeration(message)) return;
 
   if (!content.startsWith("!")) {
@@ -103,8 +112,6 @@ export async function handleMessage(
   await handleAfk(message, content);
 
   if (!content.startsWith("!") && !noPrefix) return;
-
-  const lower = content.toLowerCase();
 
   if (lower === "!setchatreward" || lower.startsWith("!setchatreward ")) {
     await handleActiveChatRewardChannelCommand(message, content.split(/\s+/).slice(1));
