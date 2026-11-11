@@ -20,7 +20,7 @@ const MIN_INTERVAL_MINUTES = 0;
 const MAX_INTERVAL_MINUTES = 24 * 60;
 const CRATE_LIFETIME_MS = 10 * 60_000;
 const SCHEDULER_INTERVAL_MS = 30_000;
-const DROP_REACTIONS = ["🌦️", "🎁", "🍀", "💎", "⭐", "🪙", "🎈", "🍉"] as const;
+export const DROP_REACTIONS = ["🌦️", "🎁", "🍀", "💎", "⭐", "🪙", "🎈", "🍉"] as const;
 const LEGACY_REACTION = "🌦️";
 export const CREDIT_DROP_TIERS = [
   { name: "Common", icon: "<:common:1558505660470010070>", min: 100, max: 200, weight: 70, color: 0x95a5a6 },

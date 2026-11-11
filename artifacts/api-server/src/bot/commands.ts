@@ -49,10 +49,13 @@ import { handleSocialRoleCommand } from "./socialRole";
 import { handleModerationRoleCommand } from "./moderationRole";
 import { handleModerationLimitCommand } from "./moderationLimits";
 import { handleSetGameCommand } from "./gameChannel";
+import { handleCreditDropCommand } from "./crates";
+import { handleFlagDropCommand } from "./flagDrop";
 import { handleQuoteRoleCommand, handleSetQuoteCommand } from "./quoteChannel";
 import { handleCreditCommand, handleCreditLeaderboardCommand, handleCreditTransferCommand, handleRoleShopCommand } from "./roleShop";
 import { awardChatCredits, handleActiveChatRewardChannelCommand, handleDailyCommand } from "./credits";
 import { handleCreditGameAnswer, handleCreditGameCommand } from "./games";
+import { handleFlagDropAnswer } from "./flagDrop";
 import { handleEmbedCommand } from "./embeds";
 import { handleStatusRoleCommand } from "./statusRole";
 import { handleGuildTagRoleCommand } from "./guildTagRole";
@@ -84,6 +87,7 @@ export async function handleMessage(
   }
 
   if (!raw.startsWith("!")) {
+    await handleFlagDropAnswer(message);
     await handleCreditGameAnswer(message);
   }
 
@@ -269,6 +273,10 @@ export async function handleMessage(
   // ── Fun / Games ───────────────────────────────────────────────────────────
   } else if (lower === "!setgame" || lower.startsWith("!setgame ")) {
     await handleSetGameCommand(message, content.split(/\s+/).slice(1));
+  } else if (lower === "!creditdrop" || lower.startsWith("!creditdrop ")) {
+    await handleCreditDropCommand(message);
+  } else if (lower === "!flagdrop" || lower.startsWith("!flagdrop ")) {
+    await handleFlagDropCommand(message);
   } else if (lower === "!wordbomb" || lower === "!wb") {
     await handleWordbomb(client, message);
   } else if (lower === "!wbstop" || lower === "!wordbomb stop") {

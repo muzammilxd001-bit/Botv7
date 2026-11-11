@@ -289,6 +289,38 @@ const slashCommands = [
     .setDescription("Add a channel where server games can be played.")
     .addChannelOption((o) => o.setName("channel").setDescription("Games text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
   new SlashCommandBuilder()
+    .setName("creditdrop")
+    .setDescription("Configure automatic credit drops.")
+    .addSubcommand((sub) => sub.setName("setup").setDescription("Enable credit drops in a channel.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText).setRequired(true))
+      .addStringOption((o) => o.setName("interval").setDescription("Interval, e.g. 30m or 2h")))
+    .addSubcommand((sub) => sub.setName("remove").setDescription("Remove credit drops from a channel.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+    .addSubcommand((sub) => sub.setName("interval").setDescription("Change the drop interval.")
+      .addStringOption((o) => o.setName("interval").setDescription("Interval, e.g. 30m or 2h").setRequired(true))
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand((sub) => sub.setName("status").setDescription("Show credit drop settings."))
+    .addSubcommand((sub) => sub.setName("pause").setDescription("Pause credit drops.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand((sub) => sub.setName("resume").setDescription("Resume credit drops.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText))),
+  new SlashCommandBuilder()
+    .setName("flagdrop")
+    .setDescription("Configure automatic flag drops.")
+    .addSubcommand((sub) => sub.setName("setup").setDescription("Enable flag drops in a channel.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText).setRequired(true))
+      .addStringOption((o) => o.setName("interval").setDescription("Interval, e.g. 15m or 2h")))
+    .addSubcommand((sub) => sub.setName("remove").setDescription("Remove flag drops from a channel.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+    .addSubcommand((sub) => sub.setName("interval").setDescription("Change the drop interval.")
+      .addStringOption((o) => o.setName("interval").setDescription("Interval, e.g. 15m or 2h").setRequired(true))
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand((sub) => sub.setName("status").setDescription("Show flag drop settings."))
+    .addSubcommand((sub) => sub.setName("pause").setDescription("Pause flag drops.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand((sub) => sub.setName("resume").setDescription("Resume flag drops.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText))),
+  new SlashCommandBuilder()
     .setName("setchatreward")
     .setDescription("Choose where active chat rewards are announced.")
     .addChannelOption((o) => o.setName("channel").setDescription("Reward announcement text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
@@ -597,6 +629,17 @@ function buildLegacyContent(interaction: ChatInputCommandInteraction): string {
     case "setgame": {
       const channel = interaction.options.getChannel("channel");
       return channel ? `!setgame <#${channel.id}>` : "!setgame status";
+    }
+    case "creditdrop":
+    case "flagdrop": {
+      const action = interaction.options.getSubcommand();
+      const channel = interaction.options.getChannel("channel");
+      const interval = interaction.options.getString("interval");
+      const channelArg = channel ? ` <#${channel.id}>` : "";
+      if (action === "setup") return `!${interaction.commandName} setup <#${channel!.id}>${interval ? ` ${interval}` : ""}`;
+      if (action === "remove") return `!${interaction.commandName} remove <#${channel!.id}>`;
+      if (action === "interval") return `!${interaction.commandName} interval ${interval}${channelArg}`;
+      return `!${interaction.commandName} ${action}${channelArg}`;
     }
     case "setchatreward": {
       const channel = interaction.options.getChannel("channel");

@@ -17,6 +17,8 @@ import { handleTicketInteraction } from "./tickets";
 import { logger } from "../lib/logger";
 import { processUserMessageAutomations, sendMemberMessage } from "./automation";
 import { handleGameAnswerInteraction, handleGameDropInteraction, handleNicknameGameMemberUpdate } from "./games";
+import { DROP_REACTIONS, handleCreditDropReaction, startCreditDropScheduler } from "./crates";
+import { startFlagDropScheduler } from "./flagDrop";
 import { handleStatusRolePresenceUpdate } from "./statusRole";
 import { handleGuildTagRoleUserUpdate } from "./guildTagRole";
 import {
@@ -52,6 +54,8 @@ export function createBot(): Client {
     client.user?.setActivity("🎉 Giveaways | !help | /help");
     startTempChannelCleanupScheduler(client);
     startReminderScheduler(client);
+    startCreditDropScheduler(client);
+    startFlagDropScheduler(client);
     void registerSlashCommands(client);
   });
 
@@ -203,6 +207,9 @@ export function createBot(): Client {
   client.on("messageReactionAdd", async (reaction: MessageReaction, user: User) => {
     try {
       if (user.bot) return;
+      if (DROP_REACTIONS.some((dropReaction) => dropReaction === reaction.emoji.name)) {
+        await handleCreditDropReaction(reaction, user);
+      }
       if (reaction.emoji.name !== "🎉") return;
 
       if (reaction.partial) await reaction.fetch();
