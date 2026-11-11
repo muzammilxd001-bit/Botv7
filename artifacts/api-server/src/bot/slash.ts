@@ -280,7 +280,12 @@ const slashCommands = [
     ),
   new SlashCommandBuilder()
     .setName("wordbomb")
-    .setDescription("Start a Word Bomb game in the configured games channel."),
+    .setDescription("Start a Word Bomb game in the configured Word Bomb channel."),
+  new SlashCommandBuilder()
+    .setName("setwbchannel")
+    .setDescription("Configure the channel used for Word Bomb.")
+    .addChannelOption((o) => o.setName("channel").setDescription("Word Bomb text channel").addChannelTypes(ChannelType.GuildText))
+    .addBooleanOption((o) => o.setName("remove").setDescription("Remove the Word Bomb channel setting")),
   new SlashCommandBuilder()
     .setName("games")
     .setDescription("Choose a game to drop in the configured game channel."),
@@ -597,6 +602,11 @@ function buildLegacyContent(interaction: ChatInputCommandInteraction): string {
     case "setgame": {
       const channel = interaction.options.getChannel("channel");
       return channel ? `!setgame <#${channel.id}>` : "!setgame status";
+    }
+    case "setwbchannel": {
+      if (interaction.options.getBoolean("remove")) return "!setwbchannel remove";
+      const channel = interaction.options.getChannel("channel");
+      return channel ? `!setwbchannel <#${channel.id}>` : "!setwbchannel status";
     }
     case "setchatreward": {
       const channel = interaction.options.getChannel("channel");

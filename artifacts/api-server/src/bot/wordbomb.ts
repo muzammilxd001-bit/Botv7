@@ -1,4 +1,5 @@
 import {
+  ChannelType,
   EmbedBuilder,
   PermissionFlagsBits,
   type Client,
@@ -6,9 +7,11 @@ import {
   type MessageCreateOptions,
   type TextChannel,
 } from "discord.js";
+import { and, eq } from "drizzle-orm";
+import { botGameSettingsTable, db } from "@workspace/db";
+import { logger } from "../lib/logger";
 import { createRequire } from "node:module";
 import { premiumColors, premiumMessagePayload } from "./presentation";
-import { requireGameChannel } from "./gameChannel";
 
 const _require = createRequire(import.meta.url);
 const _wordList: string[] = _require("an-array-of-english-words");
@@ -43,6 +46,7 @@ const LOBBY_TIME = 30_000;
 const TURN_TIME = 10_000;
 const EMBED_COLOR = premiumColors.brand;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const WORDBOMB_GAME_TYPE = "wordbomb";
 
 async function sendPremium(
   channel: TextChannel,
@@ -66,6 +70,110 @@ interface GameState {
 
 const activeGames = new Map<string, GameState>();
 const winsLeaderboard = new Map<string, Map<string, number>>();
+const wordbombChannelCache = new Map<string, { expiresAt: number; channelId: string | null }>();
+
+async function getWordbombChannelId(guildId: string): Promise<string | null | undefined> {
+  const cached = wordbombChannelCache.get(guildId);
+  if (cached && cached.expiresAt > Date.now()) return cached.channelId;
+
+  try {
+    const [setting] = await db.select({ channelId: botGameSettingsTable.channelId })
+      .from(botGameSettingsTable)
+    .where(and(
+      eq(botGameSettingsTable.guildId, guildId),
+      eq(botGameSettingsTable.gameType, WORDBOMB_GAME_TYPE),
+    ))
+      .limit(1);
+    const channelId = setting?.channelId ?? null;
+    wordbombChannelCache.set(guildId, { expiresAt: Date.now() + 15_000, channelId });
+    return channelId;
+  } catch (error) {
+    logger.error({ err: error, guildId }, "Failed to load Word Bomb channel setting");
+    return undefined;
+  }
+}
+
+async function requireWordbombChannel(message: Message): Promise<boolean> {
+  const guild = message.guild;
+  if (!guild) return false;
+  const channelId = await getWordbombChannelId(guild.id);
+  if (channelId === undefined) {
+    await message.reply("❌ Could not verify the Word Bomb channel. Please try again shortly.");
+    return false;
+  }
+  if (!channelId) {
+    await message.reply("❌ Word Bomb is not configured. A server admin can set it with `!setwbchannel #channel`.");
+    return false;
+  }
+  if (message.channel.id !== channelId) {
+    await message.reply(`❌ Word Bomb commands can only be used in <#${channelId}>.`);
+    return false;
+  }
+  return true;
+}
+
+export async function handleSetWbChannelCommand(message: Message, args: string[]): Promise<void> {
+  const guild = message.guild;
+  if (!guild) return;
+
+  const member = message.member ?? await guild.members.fetch(message.author.id).catch(() => null);
+  if (!member?.permissions.has(PermissionFlagsBits.ManageGuild) && !member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    await message.reply("❌ You need **Manage Server** permission to configure the Word Bomb channel.");
+    return;
+  }
+
+  const action = args[0]?.toLowerCase();
+  if (action === "status" || !args[0]) {
+    const channelId = await getWordbombChannelId(guild.id);
+    await message.reply(channelId === undefined
+      ? "❌ Could not load the Word Bomb channel setting."
+      : channelId
+        ? `💣 Word Bomb channel: <#${channelId}>`
+        : "💣 No Word Bomb channel is set. Use `!setwbchannel #channel`.");
+    return;
+  }
+
+  if (["remove", "clear", "off"].includes(action ?? "")) {
+    try {
+      await db.delete(botGameSettingsTable).where(and(
+        eq(botGameSettingsTable.guildId, guild.id),
+        eq(botGameSettingsTable.gameType, WORDBOMB_GAME_TYPE),
+      ));
+      wordbombChannelCache.set(guild.id, { expiresAt: Date.now() + 15_000, channelId: null });
+      await message.reply("✅ Word Bomb channel setting removed.");
+    } catch (error) {
+      logger.error({ err: error, guildId: guild.id }, "Failed to remove Word Bomb channel setting");
+      await message.reply("❌ Could not remove the Word Bomb channel setting. Please try again.");
+    }
+    return;
+  }
+
+  const mentionedChannel = message.mentions.channels.first();
+  const channelId = mentionedChannel?.id ?? /^<?#?(\d{17,20})>?$/.exec(args[0] ?? "")?.[1];
+  if (!channelId || args.length > 1) {
+    await message.reply("Usage: `!setwbchannel #channel`, `!setwbchannel status`, or `!setwbchannel remove`.");
+    return;
+  }
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    await message.reply("❌ Choose a server text channel.");
+    return;
+  }
+
+  try {
+    await db.insert(botGameSettingsTable)
+      .values({ guildId: guild.id, gameType: WORDBOMB_GAME_TYPE, channelId: channel.id })
+      .onConflictDoUpdate({
+        target: [botGameSettingsTable.guildId, botGameSettingsTable.gameType],
+        set: { channelId: channel.id, updatedAt: new Date() },
+      });
+    wordbombChannelCache.set(guild.id, { expiresAt: Date.now() + 15_000, channelId: channel.id });
+    await message.reply(`✅ Word Bomb channel set to <#${channel.id}>.`);
+  } catch (error) {
+    logger.error({ err: error, guildId: guild.id, channelId: channel.id }, "Failed to set Word Bomb channel");
+    await message.reply("❌ Could not save the Word Bomb channel. Please try again.");
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -250,7 +358,7 @@ async function runGame(channel: TextChannel, state: GameState, guildId: string):
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 export async function handleWordbomb(client: Client, message: Message): Promise<void> {
-  if (!message.guild || !(await requireGameChannel(message))) return;
+  if (!message.guild || !(await requireWordbombChannel(message))) return;
   const guildId = message.guild.id;
 
   if (activeGames.has(guildId)) {
@@ -332,7 +440,7 @@ export async function handleWordbomb(client: Client, message: Message): Promise<
 }
 
 export async function handleWordbombStop(message: Message): Promise<void> {
-  if (!message.guild || !(await requireGameChannel(message))) return;
+  if (!message.guild || !(await requireWordbombChannel(message))) return;
   const guildId = message.guild.id;
 
   const member = message.guild.members.cache.get(message.author.id);
@@ -359,7 +467,7 @@ export async function handleWordbombStop(message: Message): Promise<void> {
 }
 
 export async function handleWbTop(message: Message): Promise<void> {
-  if (!message.guild || !(await requireGameChannel(message))) return;
+  if (!message.guild || !(await requireWordbombChannel(message))) return;
   const guildId = message.guild.id;
 
   const guildWins = winsLeaderboard.get(guildId);
