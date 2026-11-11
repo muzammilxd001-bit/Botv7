@@ -322,8 +322,12 @@ const slashCommands = [
       .addChannelOption((o) => o.setName("channel").setDescription("Drop channel").addChannelTypes(ChannelType.GuildText))),
   new SlashCommandBuilder()
     .setName("setchatreward")
-    .setDescription("Choose where active chat rewards are announced.")
-    .addChannelOption((o) => o.setName("channel").setDescription("Reward announcement text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)),
+    .setDescription("Configure active chat reward announcement channels.")
+    .addSubcommand((sub) => sub.setName("set").setDescription("Add an announcement channel.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Reward announcement text channel").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+    .addSubcommand((sub) => sub.setName("remove").setDescription("Remove a channel, or all channels.")
+      .addChannelOption((o) => o.setName("channel").setDescription("Channel to remove; omit to clear all").addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand((sub) => sub.setName("status").setDescription("List announcement channels.")),
   new SlashCommandBuilder()
     .setName("setgambling")
     .setDescription("Choose the channel where gambling commands can be used.")
@@ -642,8 +646,11 @@ function buildLegacyContent(interaction: ChatInputCommandInteraction): string {
       return `!${interaction.commandName} ${action}${channelArg}`;
     }
     case "setchatreward": {
+      const action = interaction.options.getSubcommand();
       const channel = interaction.options.getChannel("channel");
-      return channel ? `!setchatreward <#${channel.id}>` : "!setchatreward status";
+      if (action === "set" && channel) return `!setchatreward <#${channel.id}>`;
+      if (action === "remove") return channel ? `!setchatreward remove <#${channel.id}>` : "!setchatreward remove";
+      return "!setchatreward status";
     }
     case "setgambling": {
       const channel = interaction.options.getChannel("channel");

@@ -84,15 +84,17 @@ async function maybeAwardRandomChatReward(message: Message, now: number): Promis
     });
     lastRandomRewardAt.set(guild.id, now);
 
-    const [channelSetting] = await db.select({ channelId: botActiveChatRewardSettingsTable.channelId })
+    const channelSettings = await db.select({ channelId: botActiveChatRewardSettingsTable.channelId })
       .from(botActiveChatRewardSettingsTable)
-      .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id))
-      .limit(1);
-    let rewardChannel: TextChannel | null = null;
-    if (channelSetting) {
-      const configuredChannel = await guild.channels.fetch(channelSetting.channelId).catch(() => null);
+      .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id));
+    const rewardChannels: TextChannel[] = [];
+    for (const channelSetting of channelSettings) {
+      const configuredChannel = await guild.channels.fetch(channelSetting.channelId).catch((error: unknown) => {
+        logger.warn({ err: error, guildId: guild.id, channelId: channelSetting.channelId }, "Could not fetch active chat reward channel");
+        return null;
+      });
       if (configuredChannel?.type === ChannelType.GuildText) {
-        rewardChannel = configuredChannel;
+        rewardChannels.push(configuredChannel);
       } else {
         logger.warn({ guildId: guild.id, channelId: channelSetting.channelId }, "Active chat reward channel is unavailable");
       }
@@ -112,8 +114,12 @@ async function maybeAwardRandomChatReward(message: Message, now: number): Promis
         ],
         allowedMentions: { parse: [] },
       };
-      if (rewardChannel) {
-        await rewardChannel.send(announcement);
+      if (rewardChannels.length > 0) {
+        for (const rewardChannel of rewardChannels) {
+          await rewardChannel.send(announcement).catch((error: unknown) => {
+            logger.warn({ err: error, guildId: guild.id, channelId: rewardChannel.id }, "Could not send active chat reward announcement");
+          });
+        }
       } else {
         await message.reply(announcement);
       }
@@ -137,32 +143,43 @@ export async function handleActiveChatRewardChannelCommand(message: Message, arg
 
   const action = args[0]?.toLowerCase();
   if (action === "remove" || action === "clear" || action === "off") {
+    const mentionedChannel = message.mentions.channels.first();
+    const channelId = mentionedChannel?.id ?? /^<?#?(\d{17,20})>?$/.exec(args[1] ?? "")?.[1];
     try {
-      await db.delete(botActiveChatRewardSettingsTable)
-        .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id));
-      await message.reply("✅ Active chat reward announcements will be sent in the message channel again.");
+      if (channelId) {
+        await db.delete(botActiveChatRewardSettingsTable)
+          .where(and(
+            eq(botActiveChatRewardSettingsTable.guildId, guild.id),
+            eq(botActiveChatRewardSettingsTable.channelId, channelId),
+          ));
+        await message.reply(`✅ Removed <#${channelId}> from active chat reward announcement channels.`);
+      } else {
+        await db.delete(botActiveChatRewardSettingsTable)
+          .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id));
+        await message.reply("✅ All active chat reward announcement channels were removed. Announcements will use the channel where chat activity triggers the reward.");
+      }
     } catch (error) {
-      logger.error({ err: error, guildId: guild.id }, "Failed to clear active chat reward channel");
-      await message.reply("❌ Could not clear the active chat reward channel. Please try again.");
+      logger.error({ err: error, guildId: guild.id, channelId }, "Failed to remove active chat reward channel");
+      await message.reply("❌ Could not remove the active chat reward channel. Please try again.");
     }
     return;
   }
 
+  const channelArgumentIndex = action === "set" ? 1 : 0;
   const mentionedChannel = message.mentions.channels.first();
-  const channelId = mentionedChannel?.id ?? /^<?#?(\d{17,20})>?$/.exec(args[0] ?? "")?.[1];
+  const channelId = mentionedChannel?.id ?? /^<?#?(\d{17,20})>?$/.exec(args[channelArgumentIndex] ?? "")?.[1];
   if (!channelId) {
-    if (action !== "status" && args[0]) {
-      await message.reply("Usage: `!setchatreward #channel`, `!setchatreward status`, or `!setchatreward remove`.");
+    if (action !== "status" && args.length > 0) {
+      await message.reply("Usage: `!setchatreward #channel`, `!setchatreward status`, `!setchatreward remove #channel`, or `!setchatreward remove` to clear all.");
       return;
     }
     try {
-      const [setting] = await db.select({ channelId: botActiveChatRewardSettingsTable.channelId })
+      const settings = await db.select({ channelId: botActiveChatRewardSettingsTable.channelId })
         .from(botActiveChatRewardSettingsTable)
-        .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id))
-        .limit(1);
-      await message.reply(setting
-        ? `💬 Active chat reward announcements will be sent in <#${setting.channelId}>.`
-        : "💬 No reward channel is set. Announcements are sent where chat activity triggers the reward. Use `!setchatreward #channel`.");
+        .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id));
+      await message.reply(settings.length > 0
+        ? `💬 Active chat reward announcements will be sent in:\n${settings.map((setting) => `• <#${setting.channelId}>`).join("\n")}`
+        : "💬 No reward channels are set. Announcements are sent where chat activity triggers the reward. Add channels with `!setchatreward #channel`.");
     } catch (error) {
       logger.error({ err: error, guildId: guild.id }, "Failed to load active chat reward channel");
       await message.reply("❌ Could not load the active chat reward channel. Please try again.");
@@ -179,11 +196,8 @@ export async function handleActiveChatRewardChannelCommand(message: Message, arg
   try {
     await db.insert(botActiveChatRewardSettingsTable)
       .values({ guildId: guild.id, channelId: channel.id })
-      .onConflictDoUpdate({
-        target: botActiveChatRewardSettingsTable.guildId,
-        set: { channelId: channel.id, updatedAt: new Date() },
-      });
-    await message.reply(`✅ Active chat reward announcements will be sent in <#${channel.id}>.`);
+      .onConflictDoNothing();
+    await message.reply(`✅ Added <#${channel.id}> to active chat reward announcement channels.`);
   } catch (error) {
     logger.error({ err: error, guildId: guild.id, channelId }, "Failed to set active chat reward channel");
     await message.reply("❌ Could not save the active chat reward channel. Please try again.");
