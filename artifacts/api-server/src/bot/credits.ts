@@ -14,31 +14,58 @@ const RANDOM_REWARD_TIERS = [
   { name: "Epic", icon: "<:epic:1558393073204076607>", minCredits: 3000, maxCredits: 5000, weight: 1, color: 0xf1c40f },
 ] as const;
 const chatCreditCooldowns = new Map<string, number>();
+const CHAT_REWARD_CHANNEL_CACHE_MS = 15_000;
 const activeChatters = new Map<string, Map<string, { messageTimes: number[]; displayName: string }>>();
+const chatRewardChannelCache = new Map<string, { expiresAt: number; channelIds: string[] }>();
 const lastRandomRewardAt = new Map<string, number>();
 const randomRewardInProgress = new Set<string>();
 const DAILY_STREAK_REWARDS = [100, 150, 200, 250, 300, 400, 500] as const;
 const DAILY_COOLDOWN_MS = 24 * 60 * 60_000;
 const DAILY_STREAK_WINDOW_MS = 48 * 60 * 60_000;
 
-async function maybeAwardRandomChatReward(message: Message, now: number): Promise<void> {
+async function getActiveChatRewardChannelIds(guildId: string): Promise<string[] | undefined> {
+  const cached = chatRewardChannelCache.get(guildId);
+  if (cached && cached.expiresAt > Date.now()) return cached.channelIds;
+
+  try {
+    const settings = await db.select({ channelId: botActiveChatRewardSettingsTable.channelId })
+      .from(botActiveChatRewardSettingsTable)
+      .where(eq(botActiveChatRewardSettingsTable.guildId, guildId));
+    const channelIds = settings.map((setting) => setting.channelId);
+    chatRewardChannelCache.set(guildId, {
+      expiresAt: Date.now() + CHAT_REWARD_CHANNEL_CACHE_MS,
+      channelIds,
+    });
+    return channelIds;
+  } catch (error) {
+    logger.error({ err: error, guildId }, "Failed to load active chat reward channels");
+    return undefined;
+  }
+}
+
+async function maybeAwardRandomChatReward(
+  message: Message,
+  now: number,
+  chatterMap: Map<string, { messageTimes: number[]; displayName: string }>,
+): Promise<void> {
   const guild = message.guild;
   if (!guild || randomRewardInProgress.has(guild.id)) return;
-  if (now - (lastRandomRewardAt.get(guild.id) ?? 0) < RANDOM_REWARD_INTERVAL_MS) return;
-
-  const chatterMap = activeChatters.get(guild.id);
-  if (!chatterMap) return;
-  const eligibleChatters = [...chatterMap.entries()]
-    .map(([userId, chatter]) => [
-      userId,
-      chatter,
-      chatter.messageTimes.filter((time) => now - time < ACTIVE_CHAT_WINDOW_MS).length,
-    ] as const)
-    .filter(([, , messageCount]) => messageCount > 20);
-  if (eligibleChatters.length < 2) return;
-
   randomRewardInProgress.add(guild.id);
   try {
+    if (now - (lastRandomRewardAt.get(guild.id) ?? 0) < RANDOM_REWARD_INTERVAL_MS) return;
+    const configuredChannelIds = await getActiveChatRewardChannelIds(guild.id);
+    if (configuredChannelIds === undefined) return;
+    if (configuredChannelIds.length > 0 && !configuredChannelIds.includes(message.channel.id)) return;
+
+    const eligibleChatters = [...chatterMap.entries()]
+      .map(([userId, chatter]) => [
+        userId,
+        chatter,
+        chatter.messageTimes.filter((time) => now - time < ACTIVE_CHAT_WINDOW_MS).length,
+      ] as const)
+      .filter(([, , messageCount]) => messageCount > 20);
+    if (eligibleChatters.length < 2) return;
+
     const candidates = [...eligibleChatters];
     const winners: (typeof eligibleChatters)[number][] = [];
     for (let winnerIndex = 0; winnerIndex < 2; winnerIndex++) {
@@ -84,19 +111,16 @@ async function maybeAwardRandomChatReward(message: Message, now: number): Promis
     });
     lastRandomRewardAt.set(guild.id, now);
 
-    const channelSettings = await db.select({ channelId: botActiveChatRewardSettingsTable.channelId })
-      .from(botActiveChatRewardSettingsTable)
-      .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id));
     const rewardChannels: TextChannel[] = [];
-    for (const channelSetting of channelSettings) {
-      const configuredChannel = await guild.channels.fetch(channelSetting.channelId).catch((error: unknown) => {
-        logger.warn({ err: error, guildId: guild.id, channelId: channelSetting.channelId }, "Could not fetch active chat reward channel");
+    for (const channelId of configuredChannelIds) {
+      const configuredChannel = await guild.channels.fetch(channelId).catch((error: unknown) => {
+        logger.warn({ err: error, guildId: guild.id, channelId }, "Could not fetch active chat reward channel");
         return null;
       });
       if (configuredChannel?.type === ChannelType.GuildText) {
         rewardChannels.push(configuredChannel);
       } else {
-        logger.warn({ guildId: guild.id, channelId: channelSetting.channelId }, "Active chat reward channel is unavailable");
+        logger.warn({ guildId: guild.id, channelId }, "Active chat reward channel is unavailable");
       }
     }
 
@@ -152,10 +176,12 @@ export async function handleActiveChatRewardChannelCommand(message: Message, arg
             eq(botActiveChatRewardSettingsTable.guildId, guild.id),
             eq(botActiveChatRewardSettingsTable.channelId, channelId),
           ));
+        chatRewardChannelCache.delete(guild.id);
         await message.reply(`✅ Removed <#${channelId}> from active chat reward announcement channels.`);
       } else {
         await db.delete(botActiveChatRewardSettingsTable)
           .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id));
+        chatRewardChannelCache.delete(guild.id);
         await message.reply("✅ All active chat reward announcement channels were removed. Announcements will use the channel where chat activity triggers the reward.");
       }
     } catch (error) {
@@ -177,6 +203,10 @@ export async function handleActiveChatRewardChannelCommand(message: Message, arg
       const settings = await db.select({ channelId: botActiveChatRewardSettingsTable.channelId })
         .from(botActiveChatRewardSettingsTable)
         .where(eq(botActiveChatRewardSettingsTable.guildId, guild.id));
+      chatRewardChannelCache.set(guild.id, {
+        expiresAt: Date.now() + CHAT_REWARD_CHANNEL_CACHE_MS,
+        channelIds: settings.map((setting) => setting.channelId),
+      });
       await message.reply(settings.length > 0
         ? `💬 Active chat reward announcements will be sent in:\n${settings.map((setting) => `• <#${setting.channelId}>`).join("\n")}`
         : "💬 No reward channels are set. Announcements are sent where chat activity triggers the reward. Add channels with `!setchatreward #channel`.");
@@ -197,6 +227,7 @@ export async function handleActiveChatRewardChannelCommand(message: Message, arg
     await db.insert(botActiveChatRewardSettingsTable)
       .values({ guildId: guild.id, channelId: channel.id })
       .onConflictDoNothing();
+    chatRewardChannelCache.delete(guild.id);
     await message.reply(`✅ Added <#${channel.id}> to active chat reward announcement channels.`);
   } catch (error) {
     logger.error({ err: error, guildId: guild.id, channelId }, "Failed to set active chat reward channel");
@@ -214,21 +245,22 @@ export async function awardChatCredits(message: Message): Promise<void> {
 
   const key = `${message.guild.id}:${message.author.id}`;
   const now = Date.now();
-  let guildChatters = activeChatters.get(message.guild.id);
-  if (!guildChatters) {
-    guildChatters = new Map();
-    activeChatters.set(message.guild.id, guildChatters);
+  const channelKey = `${message.guild.id}:${message.channel.id}`;
+  let channelChatters = activeChatters.get(channelKey);
+  if (!channelChatters) {
+    channelChatters = new Map();
+    activeChatters.set(channelKey, channelChatters);
   }
-  const chatter = guildChatters.get(message.author.id) ?? { messageTimes: [], displayName: message.author.displayName };
+  const chatter = channelChatters.get(message.author.id) ?? { messageTimes: [], displayName: message.author.displayName };
   chatter.messageTimes = chatter.messageTimes.filter((time) => now - time < ACTIVE_CHAT_WINDOW_MS);
   chatter.messageTimes.push(now);
   chatter.displayName = message.member?.displayName ?? message.author.displayName;
-  guildChatters.set(message.author.id, chatter);
-  for (const [userId, chatter] of guildChatters) {
-    if (chatter.messageTimes.length === 0) guildChatters.delete(userId);
+  channelChatters.set(message.author.id, chatter);
+  for (const [userId, chatter] of channelChatters) {
+    if (chatter.messageTimes.length === 0) channelChatters.delete(userId);
   }
 
-  await maybeAwardRandomChatReward(message, now);
+  await maybeAwardRandomChatReward(message, now, channelChatters);
   if (now - (chatCreditCooldowns.get(key) ?? 0) < CHAT_CREDIT_COOLDOWN_MS) return;
 
   try {
